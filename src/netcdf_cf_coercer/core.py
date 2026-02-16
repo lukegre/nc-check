@@ -162,16 +162,6 @@ def _heuristic_check_dataset(ds: xr.Dataset) -> dict[str, Any]:
 
     for var_name, da in ds.data_vars.items():
         var_issues = []
-        known_dim_coords = [d for d in da.dims if d in ds.coords and d in axis_guesses]
-        if known_dim_coords and da.attrs.get("coordinates") is None:
-            var_issues.append(
-                {
-                    "item": "missing_coordinates_attr",
-                    "current": None,
-                    "expected": "space-separated coordinate variable names (optional but recommended for clarity)",
-                    "suggested_fix": "set_coordinates_attr",
-                }
-            )
         if not _VALID_NAME_RE.match(str(var_name)):
             var_issues.append(
                 {
@@ -437,13 +427,5 @@ def make_dataset_compliant(ds: xr.Dataset) -> xr.Dataset:
             out = out.assign_coords({dim: coerced})
         else:
             out[dim].attrs = new_attrs
-
-    for var_name, da in out.data_vars.items():
-        known_dim_coords = [d for d in da.dims if d in out.coords and d in axis_guesses]
-        if not known_dim_coords:
-            continue
-        if "coordinates" not in da.attrs:
-            out[var_name].attrs = deepcopy(da.attrs)
-            out[var_name].attrs["coordinates"] = " ".join(known_dim_coords)
 
     return out
