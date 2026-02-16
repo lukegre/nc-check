@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass
-import re
 from typing import Any
 
 import numpy as np
 import xarray as xr
+
 from .standard_names import augment_issues_with_standard_name_suggestions
 
 CF_VERSION = "CF-1.12"
-CF_STANDARD_NAME_TABLE_URL = (
-    "https://cfconventions.org/Data/cf-standard-names/current/src/cf-standard-name-table.xml"
-)
+CF_STANDARD_NAME_TABLE_URL = "https://cfconventions.org/Data/cf-standard-names/current/src/cf-standard-name-table.xml"
 
 _LAT_NAMES = {"lat", "latitude", "y"}
 _LON_NAMES = {"lon", "longitude", "x"}
@@ -116,7 +115,9 @@ def _heuristic_check_dataset(ds: xr.Dataset) -> dict[str, Any]:
         if guess:
             axis_guesses[dim] = guess
         else:
-            issues["notes"].append(f"Could not infer CF axis type for dimension '{dim}'.")
+            issues["notes"].append(
+                f"Could not infer CF axis type for dimension '{dim}'."
+            )
 
     for dim, guess in axis_guesses.items():
         coord = ds.coords.get(dim)
@@ -414,7 +415,7 @@ def make_dataset_compliant(ds: xr.Dataset) -> xr.Dataset:
 
         coord = out.coords[dim]
         new_attrs = deepcopy(coord.attrs)
-
+        dim = str(dim)
         for key, val in _expected_coord_attrs(axis_guesses[dim].axis_type).items():
             new_attrs[key] = val
 
