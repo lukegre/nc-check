@@ -17,9 +17,12 @@ def test_check_reports_missing_conventions_and_coord_attrs() -> None:
 
     assert issues["cf_version"] == "CF-1.12"
     assert issues["engine"] == "cfchecker"
+    assert issues["check_method"] in {"cfchecker", "heuristic"}
     if issues["engine_status"] == "ok":
+        assert issues["check_method"] == "cfchecker"
         assert issues["global"] or issues["variables"]
     else:
+        assert issues["check_method"] == "heuristic"
         assert "checker_error" in issues
         assert any(i["item"] == "Conventions" for i in issues["global"])
         assert "time" in issues["coordinates"]
@@ -99,6 +102,7 @@ def test_fallback_checker_reports_variable_level_issues(monkeypatch) -> None:
     issues = ds.cf.check()
 
     assert issues["engine_status"] == "unavailable"
+    assert issues["check_method"] == "heuristic"
     assert "bad-name" in issues["variables"]
     items = {entry["item"] for entry in issues["variables"]["bad-name"]}
     assert "invalid_variable_name" in items
@@ -214,6 +218,7 @@ def test_pretty_print_prints_yaml_like_output(monkeypatch, capsys) -> None:
     assert report is None
     assert "CF Compliance Report" in out
     assert "Engine status" in out
+    assert "Check method" in out
     assert "Variable Findings" in out
 
 

@@ -74,6 +74,7 @@ def print_pretty_report(report: Any) -> None:
         meta.add_row("CF version", _stringify(report.get("cf_version")))
         meta.add_row("Engine", _stringify(report.get("engine")))
         meta.add_row("Engine status", _stringify(report.get("engine_status")))
+        meta.add_row("Check method", _stringify(report.get("check_method")))
         counts = report.get("counts") or {}
         if isinstance(counts, dict):
             meta.add_row(
