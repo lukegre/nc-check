@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<standard_name_table>
+  <entry id="sea_surface_temperature">
+    <canonical_units>K</canonical_units>
+  </entry>
+  <entry id="air_temperature">
+    <canonical_units>K</canonical_units>
+  </entry>
+</standard_name_table>

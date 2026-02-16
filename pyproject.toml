@@ -1,0 +1,32 @@
+[project]
+name = "netcdf-cf-coercer"
+version = "0.1.0"
+description = "Prepare xarray Datasets for CF-1.12 compliant NetCDF output"
+readme = "README.md"
+authors = [
+    { name = "lukegre", email = "lukegre@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "cfchecker",
+    "cfunits>=3.3.7",
+    "netcdf4",
+    "numpy>=1.24",
+    "pyudunits2>=0.1",
+    "xarray>=2023.1",
+]
+
+[dependency-groups]
+dev = [
+    "icecream>=2.1.10",
+    "ipykernel>=7.2.0",
+    "pytest>=7.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.9,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
