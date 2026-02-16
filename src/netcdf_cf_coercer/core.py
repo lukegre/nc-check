@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
+from .formatting import print_pretty_report
 from .standard_names import augment_issues_with_standard_name_suggestions
 
 CF_VERSION = "CF-1.12"
@@ -298,7 +299,7 @@ def _run_cfchecker_on_dataset(
     ds: xr.Dataset,
     *,
     cf_version: str = "1.12",
-    cf_standard_names_xml: str | None = None,
+    standard_name_table_xml: str | None = None,
     cf_area_types_xml: str | None = None,
     cf_region_names_xml: str | None = None,
     cache_tables: bool = False,
@@ -322,8 +323,8 @@ def _run_cfchecker_on_dataset(
         "cacheTables": cache_tables,
         "silent": True,
     }
-    if cf_standard_names_xml is not None:
-        checker_kwargs["cfStandardNamesXML"] = cf_standard_names_xml
+    if standard_name_table_xml is not None:
+        checker_kwargs["cfStandardNamesXML"] = standard_name_table_xml
     if cf_area_types_xml is not None:
         checker_kwargs["cfAreaTypesXML"] = cf_area_types_xml
     if cf_region_names_xml is not None:
@@ -343,42 +344,43 @@ def check_dataset_compliant(
     ds: xr.Dataset,
     *,
     cf_version: str = "1.12",
-    cf_standard_names_xml: str | None = CF_STANDARD_NAME_TABLE_URL,
+    standard_name_table_xml: str | None = CF_STANDARD_NAME_TABLE_URL,
     cf_area_types_xml: str | None = None,
     cf_region_names_xml: str | None = None,
     cache_tables: bool = False,
-    standard_name_table_xml: str | None = CF_STANDARD_NAME_TABLE_URL,
     domain: str | None = None,
     fallback_to_heuristic: bool = True,
-) -> dict[str, Any]:
+    pretty_print: bool = False,
+) -> dict[str, Any] | None:
     """Run CF compliance checks using cfchecker on an in-memory NetCDF payload."""
     try:
         issues = _run_cfchecker_on_dataset(
             ds,
             cf_version=cf_version,
-            cf_standard_names_xml=cf_standard_names_xml,
+            standard_name_table_xml=standard_name_table_xml,
             cf_area_types_xml=cf_area_types_xml,
             cf_region_names_xml=cf_region_names_xml,
             cache_tables=cache_tables,
         )
-        table_xml = standard_name_table_xml or cf_standard_names_xml
         augment_issues_with_standard_name_suggestions(
             ds,
             issues,
-            table_xml,
+            standard_name_table_xml,
             domain=domain,
         )
+        if pretty_print:
+            print_pretty_report(issues)
+            return None
         return issues
     except Exception as exc:
         if not fallback_to_heuristic:
             raise
         fallback = _heuristic_check_dataset(ds)
         fallback["suggestions"] = {"variables": {}}
-        table_xml = standard_name_table_xml or cf_standard_names_xml
         augment_issues_with_standard_name_suggestions(
             ds,
             fallback,
-            table_xml,
+            standard_name_table_xml,
             domain=domain,
         )
         fallback["checker_error"] = {
@@ -388,6 +390,9 @@ def check_dataset_compliant(
         fallback["notes"].append(
             "cfchecker could not run; returned heuristic checks instead."
         )
+        if pretty_print:
+            print_pretty_report(fallback)
+            return None
         return fallback
 
 

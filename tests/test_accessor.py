@@ -4,6 +4,7 @@ from pathlib import Path
 
 import netcdf_cf_coercer  # noqa: F401
 from netcdf_cf_coercer import core
+from netcdf_cf_coercer.formatting import to_yaml_like
 
 
 def test_check_reports_missing_conventions_and_coord_attrs() -> None:
@@ -194,3 +195,29 @@ def test_domain_bias_changes_suggested_standard_name(monkeypatch) -> None:
 
     assert ocean_top == "sea_surface_temperature"
     assert atmosphere_top == "air_temperature"
+
+
+def test_pretty_print_prints_yaml_like_output(monkeypatch, capsys) -> None:
+    def _raise(*args, **kwargs):
+        raise RuntimeError("force fallback")
+
+    monkeypatch.setattr(core, "_run_cfchecker_on_dataset", _raise)
+
+    ds = xr.Dataset(
+        data_vars={"temp": (("time",), [290.0, 291.0])},
+        coords={"time": [0, 1]},
+    )
+
+    report = ds.cf.check_compliant(pretty_print=True)
+    out = capsys.readouterr().out
+
+    assert report is None
+    assert "CF Compliance Report" in out
+    assert "Engine status" in out
+    assert "Variable Findings" in out
+
+
+def test_yaml_like_formatter_still_available() -> None:
+    text = to_yaml_like({"items": [{"name": "alpha", "value": 1}]})
+    assert "items:" in text
+    assert "-\n" in text

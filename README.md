@@ -23,6 +23,12 @@ issues = ds.cf.check_compliant()
 fixed = ds.cf.make_compliant()
 ```
 
+You can also request a YAML-like text report printed to stdout:
+
+```python
+ds.cf.check_compliant(pretty_print=True)
+```
+
 `check_compliant()` runs [cf-checker](https://github.com/cedadev/cf-checker/) against an
 in-memory NetCDF payload created from the dataset (no `.nc` file written to disk), and
 returns a dictionary of detected issues.
