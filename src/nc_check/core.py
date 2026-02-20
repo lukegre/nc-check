@@ -22,6 +22,10 @@ from .standard_names import augment_issues_with_standard_name_suggestions
 
 CF_VERSION = "CF-1.12"
 CF_STANDARD_NAME_TABLE_URL = "https://cfconventions.org/Data/cf-standard-names/current/src/cf-standard-name-table.xml"
+_CFCHECKER_INSTALL_HINT = (
+    "cfchecker is not installed. Install optional CF dependencies "
+    "with `uv sync --extra cf`."
+)
 
 _LAT_NAMES = {"lat", "latitude", "y"}
 _LON_NAMES = {"lon", "longitude", "x"}
@@ -613,16 +617,22 @@ def _run_cfchecker_on_dataset(
 ) -> dict[str, Any]:
     # Import inside function so package can still be used for make_compliant
     # even if cfchecker/cfunits system dependencies are not installed.
-    with warnings.catch_warnings():
-        # cfchecker currently emits Python 3.12+ SyntaxWarning from legacy
-        # escape sequences in its regex literals. Suppress only that module.
-        warnings.filterwarnings(
-            "ignore",
-            message=r"invalid escape sequence .*",
-            category=SyntaxWarning,
-            module=r"cfchecker\.cfchecks",
-        )
-        from cfchecker import cfchecks as cfchecks
+    try:
+        with warnings.catch_warnings():
+            # cfchecker currently emits Python 3.12+ SyntaxWarning from legacy
+            # escape sequences in its regex literals. Suppress only that module.
+            warnings.filterwarnings(
+                "ignore",
+                message=r"invalid escape sequence .*",
+                category=SyntaxWarning,
+                module=r"cfchecker\.cfchecks",
+            )
+            from cfchecker import cfchecks as cfchecks
+    except ModuleNotFoundError as exc:
+        # Provide an actionable error when cfchecker is optional and unavailable.
+        if exc.name == "cfchecker":
+            raise RuntimeError(_CFCHECKER_INSTALL_HINT) from exc
+        raise
 
     payload = _as_netcdf_bytes(ds)
     fake_filename = "__in_memory__.nc"

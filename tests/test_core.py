@@ -1,3 +1,4 @@
+import builtins
 import numpy as np
 import pytest
 import xarray as xr
@@ -88,6 +89,62 @@ def test_check_dataset_compliant_raises_if_no_fallback(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="checker failed"):
         core.check_dataset_compliant(ds, fallback_to_heuristic=False)
+
+
+def test_run_cfchecker_on_dataset_raises_helpful_error_when_missing(
+    monkeypatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def _fake_import(name, *args, **kwargs):
+        if name == "cfchecker":
+            raise ModuleNotFoundError("No module named 'cfchecker'", name="cfchecker")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    ds = xr.Dataset(
+        data_vars={"v": (("time",), [1.0])},
+        coords={"time": [0]},
+    )
+
+    with pytest.raises(RuntimeError, match="cfchecker is not installed"):
+        core._run_cfchecker_on_dataset(ds)
+
+
+def test_check_dataset_compliant_reports_missing_cfchecker_with_no_fallback(
+    monkeypatch,
+) -> None:
+    def _raise(*args, **kwargs):
+        raise RuntimeError(core._CFCHECKER_INSTALL_HINT)
+
+    monkeypatch.setattr(core, "_run_cfchecker_on_dataset", _raise)
+
+    ds = xr.Dataset(
+        data_vars={"v": (("time",), [1.0])},
+        coords={"time": [0]},
+    )
+
+    with pytest.raises(RuntimeError, match="cfchecker is not installed"):
+        core.check_dataset_compliant(ds, fallback_to_heuristic=False)
+
+
+def test_check_dataset_compliant_falls_back_when_cfchecker_missing(monkeypatch) -> None:
+    def _raise(*args, **kwargs):
+        raise RuntimeError(core._CFCHECKER_INSTALL_HINT)
+
+    monkeypatch.setattr(core, "_run_cfchecker_on_dataset", _raise)
+
+    ds = xr.Dataset(
+        data_vars={"v": (("time",), [1.0])},
+        coords={"time": [0]},
+    )
+
+    issues = core.check_dataset_compliant(ds, fallback_to_heuristic=True)
+
+    assert issues["check_method"] == "heuristic"
+    assert issues["engine_status"] == "unavailable"
+    assert issues["checker_error"]["message"] == core._CFCHECKER_INSTALL_HINT
 
 
 def test_format_cf_version_normalizes_prefix() -> None:

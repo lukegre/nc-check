@@ -8,6 +8,12 @@ Prepare `xarray.Dataset` objects to be written as CF-1.12-compliant NetCDF files
 uv sync
 ```
 
+Install optional CF checker dependencies (recommended for full CF checks):
+
+```bash
+uv sync --extra cf
+```
+
 ## Usage
 
 ```python
