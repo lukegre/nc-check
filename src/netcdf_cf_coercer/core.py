@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -233,10 +234,67 @@ def _heuristic_check_dataset(ds: xr.Dataset) -> dict[str, Any]:
 
 
 def _as_netcdf_bytes(ds: xr.Dataset) -> bytes:
-    data = ds.to_netcdf(path=None)
+    # cfchecker is metadata-oriented; avoid materializing potentially large,
+    # lazy-backed arrays by serializing a compact metadata-only shadow dataset.
+    payload_ds = _build_cfchecker_payload_dataset(ds)
+    data = payload_ds.to_netcdf(path=None)
     if isinstance(data, memoryview):
         return data.tobytes()
     return bytes(data)
+
+
+def _placeholder_value_for_dtype(dtype: np.dtype[Any]) -> Any:
+    if np.issubdtype(dtype, np.bool_):
+        return False
+    if np.issubdtype(dtype, np.number):
+        return dtype.type(0)
+    if np.issubdtype(dtype, np.datetime64):
+        return np.datetime64("1970-01-01")
+    if np.issubdtype(dtype, np.timedelta64):
+        return np.timedelta64(0, "s")
+    if np.issubdtype(dtype, np.bytes_):
+        return b""
+    if np.issubdtype(dtype, np.str_):
+        return ""
+    return ""
+
+
+def _to_serializable_dtype(dtype: np.dtype[Any]) -> np.dtype[Any]:
+    # netCDF encoders cannot represent object dtype directly.
+    if dtype == np.dtype("O"):
+        return np.dtype("S1")
+    return dtype
+
+
+def _dummy_array_for_variable(
+    var: xr.Variable, reduced_dim_sizes: dict[str, int]
+) -> np.ndarray[Any, Any]:
+    dtype = _to_serializable_dtype(np.dtype(var.dtype))
+    shape = tuple(reduced_dim_sizes[str(dim)] for dim in var.dims)
+    return np.full(shape, _placeholder_value_for_dtype(dtype), dtype=dtype)
+
+
+def _build_cfchecker_payload_dataset(ds: xr.Dataset) -> xr.Dataset:
+    reduced_dim_sizes = {
+        str(dim): (0 if int(size) == 0 else 1) for dim, size in ds.sizes.items()
+    }
+    data_vars = {
+        str(name): xr.Variable(
+            dims=da.variable.dims,
+            data=_dummy_array_for_variable(da.variable, reduced_dim_sizes),
+            attrs=deepcopy(da.attrs),
+        )
+        for name, da in ds.data_vars.items()
+    }
+    coords = {
+        str(name): xr.Variable(
+            dims=coord.variable.dims,
+            data=_dummy_array_for_variable(coord.variable, reduced_dim_sizes),
+            attrs=deepcopy(coord.attrs),
+        )
+        for name, coord in ds.coords.items()
+    }
+    return xr.Dataset(data_vars=data_vars, coords=coords, attrs=deepcopy(ds.attrs))
 
 
 def _format_cf_version(version: str) -> str:
@@ -298,7 +356,16 @@ def _run_cfchecker_on_dataset(
 ) -> dict[str, Any]:
     # Import inside function so package can still be used for make_compliant
     # even if cfchecker/cfunits system dependencies are not installed.
-    from cfchecker import cfchecks as cfchecks
+    with warnings.catch_warnings():
+        # cfchecker currently emits Python 3.12+ SyntaxWarning from legacy
+        # escape sequences in its regex literals. Suppress only that module.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"invalid escape sequence .*",
+            category=SyntaxWarning,
+            module=r"cfchecker\.cfchecks",
+        )
+        from cfchecker import cfchecks as cfchecks
 
     payload = _as_netcdf_bytes(ds)
     fake_filename = "__in_memory__.nc"

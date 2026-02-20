@@ -30,8 +30,8 @@ ds.cf.check(pretty_print=True)
 ```
 
 `check()` runs [cf-checker](https://github.com/cedadev/cf-checker/) against an
-in-memory NetCDF payload created from the dataset (no `.nc` file written to disk), and
-returns a dictionary of detected issues.
+in-memory NetCDF payload created from dataset metadata (no `.nc` file written to disk),
+and returns a dictionary of detected issues.
 
 `make_compliant()` returns a new dataset with safe automatic fixes, including:
 - `Conventions = "CF-1.12"`
@@ -40,6 +40,7 @@ returns a dictionary of detected issues.
 
 Notes:
 - `cfchecker` requires the system `udunits2` library via `cfunits`.
+- For large files, prefer opening with lazy chunks: `xr.open_dataset(path, chunks={})`.
 - If `cfchecker` cannot run, `check()` falls back to heuristic checks and includes
   a `checker_error` field in the response.
 - You can bias standard-name suggestions by domain, e.g.

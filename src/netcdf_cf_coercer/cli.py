@@ -25,7 +25,7 @@ def run_check(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        with xr.open_dataset(args.fname) as ds:
+        with xr.open_dataset(args.fname, chunks={}) as ds:
             check_dataset_compliant(ds, pretty_print=True)
     except Exception as exc:
         print(f"nc-cf-check: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -43,7 +43,7 @@ def run_comply(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        with xr.open_dataset(args.fname_in) as ds:
+        with xr.open_dataset(args.fname_in, chunks={}) as ds:
             compliant = make_dataset_compliant(ds)
             compliant.to_netcdf(args.fname_out)
     except Exception as exc:

@@ -119,3 +119,24 @@ def test_make_compliant_lazy_write_has_no_coord_fillvalue(tmp_path) -> None:
             assert "_FillValue" not in nc.variables[str(coord_name)].ncattrs()
     finally:
         nc.close()
+
+
+def test_checker_payload_bytes_do_not_compute_original_lazy_data() -> None:
+    def _raise_if_computed(block: np.ndarray) -> np.ndarray:
+        raise RuntimeError("original lazy data was computed")
+
+    base = dask.ones((4,), chunks=(2,))
+    guarded = base.map_blocks(
+        _raise_if_computed,
+        dtype=base.dtype,
+        meta=np.array((), dtype=base.dtype),
+    )
+    ds = xr.Dataset(
+        data_vars={"temp": (("time",), guarded)},
+        coords={"time": [0, 1, 2, 3]},
+    )
+
+    payload = core._as_netcdf_bytes(ds)
+
+    assert isinstance(payload, bytes)
+    assert payload
