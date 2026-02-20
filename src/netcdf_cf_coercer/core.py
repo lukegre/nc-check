@@ -419,15 +419,16 @@ def make_dataset_compliant(ds: xr.Dataset) -> xr.Dataset:
         if axis_guesses[dim].axis_type in {"lat", "lon"} and not _is_numeric_dtype(
             coord.dtype
         ):
-            coerced = xr.DataArray(
-                np.asarray(coord.values).astype(float),
-                dims=coord.dims,
-                coords=coord.coords,
-                attrs=new_attrs,
-                name=coord.name,
-            )
+            # Preserve laziness for dask-backed coordinates by casting through xarray.
+            coerced = coord.astype(float).copy(deep=False)
+            coerced.attrs = new_attrs
             out = out.assign_coords({dim: coerced})
         else:
             out[dim].attrs = new_attrs
+
+    # Ferret (and some other tools) can fail when coordinate variables include
+    # _FillValue encoding. Explicitly disable _FillValue for all coordinates.
+    for coord_name in out.coords:
+        out[coord_name].encoding = {"_FillValue": None}
 
     return out

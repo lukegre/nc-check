@@ -75,6 +75,22 @@ def test_lat_lon_only_dataset_supported() -> None:
     assert out["lon"].attrs["standard_name"] == "longitude"
 
 
+def test_make_compliant_clears_coordinate_encodings() -> None:
+    ds = xr.Dataset(
+        data_vars={"temp": (("time", "lat", "lon"), np.ones((1, 1, 1)))},
+        coords={"time": [0], "lat": [10.0], "lon": [20.0], "depth": ("time", [5.0])},
+    )
+    ds["time"].encoding = {"_FillValue": -9999}
+    ds["lat"].encoding = {"_FillValue": -9999.0}
+    ds["lon"].encoding = {"_FillValue": -9999.0}
+    ds["depth"].encoding = {"_FillValue": -9999.0}
+
+    out = ds.cf.make_compliant()
+
+    for coord_name in out.coords:
+        assert out[coord_name].encoding.get("_FillValue") is None
+
+
 def test_unknown_dims_are_reported_but_not_forced() -> None:
     ds = xr.Dataset(data_vars={"v": (("station",), [1, 2, 3])})
 
@@ -194,8 +210,12 @@ def test_domain_bias_changes_suggested_standard_name(monkeypatch) -> None:
         domain="atmosphere",
     )
 
-    ocean_top = ocean["suggestions"]["variables"]["temp"]["recommended_standard_names"][0]
-    atmosphere_top = atmosphere["suggestions"]["variables"]["temp"]["recommended_standard_names"][0]
+    ocean_top = ocean["suggestions"]["variables"]["temp"]["recommended_standard_names"][
+        0
+    ]
+    atmosphere_top = atmosphere["suggestions"]["variables"]["temp"][
+        "recommended_standard_names"
+    ][0]
 
     assert ocean_top == "sea_surface_temperature"
     assert atmosphere_top == "air_temperature"

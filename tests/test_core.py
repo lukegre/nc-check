@@ -1,0 +1,75 @@
+import numpy as np
+import pytest
+import xarray as xr
+
+from netcdf_cf_coercer import core
+
+
+def test_make_compliant_creates_missing_axis_coordinates() -> None:
+    ds = xr.Dataset(
+        data_vars={"field": (("lat", "lon"), np.ones((2, 3)))},
+    )
+
+    out = core.make_dataset_compliant(ds)
+
+    assert "lat" in out.coords
+    assert "lon" in out.coords
+    assert out["lat"].attrs["standard_name"] == "latitude"
+    assert out["lon"].attrs["standard_name"] == "longitude"
+    assert out["lat"].encoding.get("_FillValue") is None
+    assert out["lon"].encoding.get("_FillValue") is None
+
+
+def test_make_compliant_casts_string_lat_lon_coords_to_float() -> None:
+    ds = xr.Dataset(
+        data_vars={"field": (("lat", "lon"), np.ones((2, 2)))},
+        coords={"lat": ["10", "11"], "lon": ["20", "21"]},
+    )
+
+    out = core.make_dataset_compliant(ds)
+
+    assert np.issubdtype(out["lat"].dtype, np.floating)
+    assert np.issubdtype(out["lon"].dtype, np.floating)
+    assert out["lat"].attrs["units"] == "degrees_north"
+    assert out["lon"].attrs["units"] == "degrees_east"
+
+
+def test_check_dataset_compliant_raises_if_no_fallback(monkeypatch) -> None:
+    def _raise(*args, **kwargs):
+        raise RuntimeError("checker failed")
+
+    monkeypatch.setattr(core, "_run_cfchecker_on_dataset", _raise)
+
+    ds = xr.Dataset(
+        data_vars={"v": (("time",), [1.0])},
+        coords={"time": [0]},
+    )
+
+    with pytest.raises(RuntimeError, match="checker failed"):
+        core.check_dataset_compliant(ds, fallback_to_heuristic=False)
+
+
+def test_format_cf_version_normalizes_prefix() -> None:
+    assert core._format_cf_version("1.12") == "CF-1.12"
+    assert core._format_cf_version("CF-1.12") == "CF-1.12"
+
+
+def test_translate_cfchecker_results_counts_and_scopes() -> None:
+    ds = xr.Dataset(
+        data_vars={"temp": (("time",), [1.0])},
+        coords={"time": [0]},
+    )
+    results = {
+        "global": {"WARN": ["g-warn"], "ERROR": ["g-error"]},
+        "variables": {
+            "temp": {"ERROR": ["bad var"]},
+            "time": {"WARN": ["coord warn"]},
+        },
+    }
+
+    translated = core._translate_cfchecker_results(results, "1.12", ds)
+
+    assert translated["cf_version"] == "CF-1.12"
+    assert translated["counts"] == {"fatal": 0, "error": 2, "warn": 2}
+    assert "temp" in translated["variables"]
+    assert "time" in translated["coordinates"]
