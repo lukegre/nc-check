@@ -5,13 +5,17 @@ Prepare `xarray.Dataset` objects to be written as CF-1.12-compliant NetCDF files
 ## Install
 
 ```bash
-uv sync
+uv add nc-check
+# or
+pip install nc-check
 ```
 
 Install optional CF checker dependencies (recommended for full CF checks):
 
 ```bash
-uv sync --extra cf
+uv add "nc-check[cf]"
+# or
+pip install "nc-check[cf]"
 ```
 
 ## Usage
