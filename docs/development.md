@@ -18,6 +18,29 @@ uv sync --group dev --extra cf
 uv run pytest
 ```
 
+## Build Docs Site
+
+`mkdocs.yml` is included at the repo root for site builds.
+
+Recommended (no global install):
+
+```bash
+uv run --with mkdocs mkdocs serve
+```
+
+Build static site:
+
+```bash
+uv run --with mkdocs mkdocs build --strict
+```
+
+Alternative (global install):
+
+```bash
+pip install mkdocs
+mkdocs serve
+```
+
 ## Project Layout
 
 - `src/nc_check/core.py`: compliance checks and compliance coercion

@@ -1,0 +1,25 @@
+site_name: nc-check
+site_description: Prepare xarray datasets for CF-1.12-ready NetCDF output
+site_url: https://lukegre.github.io/nc-check/
+repo_url: https://github.com/lukegre/nc-check
+repo_name: lukegre/nc-check
+docs_dir: docs
+site_dir: site
+exclude_docs: |
+  README.md
+theme:
+  name: mkdocs
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - CLI Guide: cli.md
+  - Python API Guide: python-api.md
+  - Checks and Reports: checks-and-reports.md
+  - Troubleshooting: troubleshooting.md
+  - Development: development.md
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - tables
+  - fenced_code

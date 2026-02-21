@@ -55,10 +55,16 @@ nc-comply input.nc output.nc
 
 ## Docs
 
-- [Documentation index](docs/README.md)
+- [Docs home](docs/index.md)
 - [Getting started](docs/getting-started.md)
 - [CLI guide](docs/cli.md)
 - [Python API guide](docs/python-api.md)
 - [Checks and reports](docs/checks-and-reports.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Development](docs/development.md)
+
+Local docs site:
+
+```bash
+uv run --with mkdocs mkdocs serve
+```

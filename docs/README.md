@@ -2,6 +2,7 @@
 
 This folder contains user and contributor docs for `nc-check`.
 
+- [Docs home](index.md)
 - [Getting started](getting-started.md)
 - [CLI guide](cli.md)
 - [Python API guide](python-api.md)
