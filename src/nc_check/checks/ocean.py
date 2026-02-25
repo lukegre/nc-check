@@ -45,6 +45,8 @@ _OCEAN_REFERENCE_POINTS = (
     ("indian_ocean", -30.0, 80.0),
     ("south_pacific", -45.0, -150.0),
     ("west_pacific", 10.0, 160.0),
+    ("east_pacific", 40, -150),
+    ("south_atlantic", -34, -45),
 )
 
 
@@ -218,6 +220,15 @@ def _point_is_missing(point: xr.DataArray) -> bool:
     if reduce_dims:
         mask = mask.all(dim=reduce_dims)
     return bool(np.asarray(mask.values).item())
+
+
+def _point_value_label(point: xr.DataArray) -> str:
+    values = np.asarray(point.values)
+    missing = np.asarray(missing_mask(point).values, dtype=bool)
+    present_values = values[~missing]
+    if present_values.size == 0:
+        return "nan"
+    return value_label(present_values.flat[0])
 
 
 class MissingLongitudeBandsCheck(Check):
@@ -398,6 +409,17 @@ class LandOceanOffsetCheck(Check):
             if context.time_dim is None
             else context.da.isel({context.time_dim: -1})
         )
+        if np.issubdtype(section.dtype, np.bool_):
+            return {
+                "enabled": True,
+                "status": "skipped_bool_dtype",
+                "mismatch_count": 0,
+                "land_points_checked": 0,
+                "ocean_points_checked": 0,
+                "land_mismatches": [],
+                "ocean_mismatches": [],
+                "note": "Skipped land/ocean sanity check for boolean data.",
+            }
 
         def check_points(
             points: tuple[tuple[str, float, float], ...],
@@ -414,6 +436,7 @@ class LandOceanOffsetCheck(Check):
                 observed_missing = _point_is_missing(selected)
                 if observed_missing == expected_missing:
                     continue
+                observed_value = _point_value_label(selected)
                 actual_lat = float(
                     np.asarray(selected.coords[self.lat_name].values).item()
                 )
@@ -429,6 +452,8 @@ class LandOceanOffsetCheck(Check):
                         "actual_lon": actual_lon,
                         "expected_missing": expected_missing,
                         "observed_missing": observed_missing,
+                        "expected_value": "nan" if expected_missing else "non-nan",
+                        "observed_value": observed_value,
                     }
                 )
             return mismatches

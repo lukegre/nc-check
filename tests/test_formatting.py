@@ -140,6 +140,49 @@ def test_print_pretty_ocean_report_shows_summary(capsys) -> None:
     assert "Longitude" in out
 
 
+def test_render_pretty_ocean_report_html_shows_value_based_mismatch_columns() -> None:
+    html = formatting.render_pretty_ocean_report_html(
+        {
+            "variable": "sst",
+            "ok": False,
+            "grid": {
+                "lon_name": "lon",
+                "lon_dim": "lon",
+                "lat_name": "lat",
+                "lat_dim": "lat",
+                "time_dim": None,
+                "longitude_convention": "-180_180",
+                "longitude_min": -180.0,
+                "longitude_max": 180.0,
+                "latitude_min": -90.0,
+                "latitude_max": 90.0,
+            },
+            "edge_of_map": {"status": "pass", "missing_longitude_count": 0},
+            "land_ocean_offset": {
+                "status": "fail",
+                "mismatch_count": 1,
+                "land_mismatches": [
+                    {
+                        "point": "sahara",
+                        "requested_lat": 23.0,
+                        "requested_lon": 13.0,
+                        "actual_lat": 23.0,
+                        "actual_lon": 13.0,
+                        "observed_value": "1.0",
+                        "expected_value": "nan",
+                    }
+                ],
+                "ocean_mismatches": [],
+            },
+        }
+    )
+
+    assert "Observed value" in html
+    assert "Expected value" in html
+    assert "1.0" in html
+    assert "nan" in html
+
+
 def test_print_pretty_time_cover_report_shows_summary(capsys) -> None:
     formatting.print_pretty_time_cover_report(
         {

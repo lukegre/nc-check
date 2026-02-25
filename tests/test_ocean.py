@@ -75,6 +75,41 @@ def test_land_ocean_offset_check_detects_shifted_data() -> None:
     )
     assert bad["land_ocean_offset"]["status"] == "fail"
     assert bad["land_ocean_offset"]["mismatch_count"] >= 1
+    mismatches = (
+        bad["land_ocean_offset"]["land_mismatches"]
+        + bad["land_ocean_offset"]["ocean_mismatches"]
+    )
+    assert mismatches
+    first = mismatches[0]
+    assert "observed_value" in first
+    assert "expected_value" in first
+    assert first["expected_value"] in {"nan", "non-nan"}
+    assert isinstance(first["observed_value"], str)
+
+
+def test_land_ocean_offset_check_skips_boolean_dtype() -> None:
+    lon = np.arange(-180.0, 181.0, 1.0)
+    lat = np.arange(-90.0, 91.0, 1.0)
+    data = np.ones((lat.size, lon.size), dtype=bool)
+
+    ds = xr.Dataset(
+        data_vars={"mask": (("lat", "lon"), data)},
+        coords={"lat": lat, "lon": lon},
+    )
+
+    report = check_ocean_cover(
+        ds,
+        var_name="mask",
+        check_edge_of_map=False,
+        report_format="python",
+    )
+
+    offset = report["land_ocean_offset"]
+    assert offset["status"] == "skipped_bool_dtype"
+    assert offset["mismatch_count"] == 0
+    assert offset["land_mismatches"] == []
+    assert offset["ocean_mismatches"] == []
+    assert "boolean data" in offset["note"]
 
 
 def test_time_cover_reports_ranges() -> None:

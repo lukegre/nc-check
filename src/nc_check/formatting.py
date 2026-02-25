@@ -523,17 +523,23 @@ def _render_ocean_report_with_rich(console: Any, report: dict[str, Any]) -> None
         table.add_column("Point", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Requested", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Actual", style=_RICH_TEXT_STYLE, justify="left")
-        table.add_column("Observed missing", style=_RICH_TEXT_STYLE, justify="left")
-        table.add_column("Expected missing", style=_RICH_TEXT_STYLE, justify="left")
+        table.add_column("Observed value", style=_RICH_TEXT_STYLE, justify="left")
+        table.add_column("Expected value", style=_RICH_TEXT_STYLE, justify="left")
         for entry in mismatches:
             if not isinstance(entry, dict):
                 continue
+            observed_value = entry.get("observed_value")
+            if observed_value is None:
+                observed_value = entry.get("observed_missing")
+            expected_value = entry.get("expected_value")
+            if expected_value is None:
+                expected_value = entry.get("expected_missing")
             table.add_row(
                 _stringify(entry.get("point")),
                 f"({_stringify(entry.get('requested_lat'))}, {_stringify(entry.get('requested_lon'))})",
                 f"({_stringify(entry.get('actual_lat'))}, {_stringify(entry.get('actual_lon'))})",
-                _stringify(entry.get("observed_missing")),
-                _stringify(entry.get("expected_missing")),
+                _stringify(observed_value),
+                _stringify(expected_value),
             )
         console.print(table)
 
@@ -1524,8 +1530,16 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
                 escape(
                     f"({_stringify(entry.get('actual_lat'))}, {_stringify(entry.get('actual_lon'))})"
                 ),
-                escape(_stringify(entry.get("observed_missing"))),
-                escape(_stringify(entry.get("expected_missing"))),
+                escape(
+                    _stringify(
+                        entry.get("observed_value", entry.get("observed_missing"))
+                    )
+                ),
+                escape(
+                    _stringify(
+                        entry.get("expected_value", entry.get("expected_missing"))
+                    )
+                ),
             ]
             for entry in mismatches
             if isinstance(entry, dict)
@@ -1538,8 +1552,8 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
                         "Point",
                         "Requested",
                         "Actual",
-                        "Observed missing",
-                        "Expected missing",
+                        "Observed value",
+                        "Expected value",
                     ],
                     rows,
                 ),
