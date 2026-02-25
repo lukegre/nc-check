@@ -422,7 +422,7 @@ def test_all_html_report_combines_selected_checks() -> None:
 
     assert isinstance(html, str)
     assert "Full Dataset Check Report" in html
-    assert "Combined Check Summary" in html
+    assert "Combined Check Summary" not in html
     assert "CF Compliance" in html
     assert "Ocean Coverage" in html
     assert "Time Coverage" in html
