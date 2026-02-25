@@ -1,4 +1,5 @@
 import builtins
+from datetime import date
 import numpy as np
 import pytest
 import xarray as xr
@@ -295,6 +296,69 @@ def test_check_dataset_compliant_falls_back_when_cfchecker_missing(monkeypatch) 
     assert issues["check_method"] == "heuristic"
     assert issues["engine_status"] == "unavailable"
     assert issues["checker_error"]["message"] == core._CFCHECKER_INSTALL_HINT
+
+
+def test_check_dataset_compliant_preflight_flags_list_attr_as_fatal() -> None:
+    ds = xr.Dataset(
+        data_vars={"tos": (("time",), [290.0])},
+        coords={"time": [0]},
+    )
+    ds["tos"].attrs["source"] = ["a.nc", "b.nc"]
+
+    issues = core.check_dataset_compliant(
+        ds,
+        engine="cfchecker",
+        fallback_to_heuristic=True,
+        report_format="python",
+        standard_name_table_xml=None,
+    )
+
+    assert issues["engine"] == "heuristic"
+    assert issues["engine_status"] == "invalid_input"
+    assert issues["check_method"] == "heuristic"
+    assert issues["checker_error"]["type"] == "CfcheckerPreflightError"
+    assert "variable:tos.source" in issues["checker_error"]["message"]
+    assert "variable:tos.source" in issues["checker_error"]["offending_attrs"]
+    assert any(
+        isinstance(entry, dict) and entry.get("item") == "cfchecker_attr_type_invalid"
+        for entry in issues["variables"]["tos"]
+    )
+    assert issues["counts"]["fatal"] > 0
+    assert any(
+        "input validation failed" in note.lower()
+        for note in (issues.get("notes") or [])
+    )
+
+
+def test_check_dataset_compliant_preflight_raises_without_fallback() -> None:
+    ds = xr.Dataset(
+        data_vars={"tos": (("time",), [290.0])},
+        coords={"time": [0]},
+    )
+    ds["tos"].attrs["source"] = ["a.nc", "b.nc"]
+
+    with pytest.raises(core.CfcheckerPreflightError):
+        core.check_dataset_compliant(
+            ds,
+            engine="cfchecker",
+            fallback_to_heuristic=False,
+            report_format="python",
+            standard_name_table_xml=None,
+        )
+
+
+def test_check_dataset_compliant_sets_report_file_and_generated_date() -> None:
+    ds = xr.Dataset(data_vars={"v": (("time",), [1.0])}, coords={"time": [0]})
+    ds.encoding["source"] = "/tmp/example_input.nc"
+
+    issues = core.check_dataset_compliant(
+        ds,
+        conventions="ferret",
+        report_format="python",
+    )
+
+    assert issues["source_file"] == "example_input.nc"
+    assert issues["generated_on"] == date.today().isoformat()
 
 
 def test_format_cf_version_normalizes_prefix() -> None:

@@ -248,6 +248,8 @@ def test_render_pretty_report_html_uses_flat_section_layout() -> None:
             "engine": "cfchecker",
             "engine_status": "ok",
             "check_method": "cfchecker",
+            "source_file": "example_input.nc",
+            "generated_on": "2026-02-25",
             "conventions_checked": ["cf", "ferret"],
             "counts": {"fatal": 0, "error": 1, "warn": 1},
             "global": [{"severity": "WARN", "message": "example global"}],
@@ -275,4 +277,7 @@ def test_render_pretty_report_html_uses_flat_section_layout() -> None:
     assert "Fatals" in html
     assert "Errors" in html
     assert "Errors + fatals" not in html
+    assert "File: example_input.nc" in html
+    assert "Generated" in html
+    assert "2026-02-25" in html
     assert "PASSED" in html
