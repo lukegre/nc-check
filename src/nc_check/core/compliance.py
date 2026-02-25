@@ -66,6 +66,74 @@ _CF_ATTR_CASE_KEYS = (
 )
 
 
+def _preflight_offending_attr_refs(
+    report: dict[str, Any], *, max_items: int = 8
+) -> list[str]:
+    refs: list[str] = []
+
+    for item in report.get("global", []) or []:
+        if not isinstance(item, dict):
+            continue
+        current = item.get("current")
+        if not isinstance(current, dict):
+            continue
+        attr_name = current.get("attr_name")
+        if attr_name is not None:
+            refs.append(f"global:{attr_name}")
+
+    coordinates = report.get("coordinates")
+    if isinstance(coordinates, dict):
+        for coord_name, items in coordinates.items():
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                current = item.get("current")
+                if not isinstance(current, dict):
+                    continue
+                attr_name = current.get("attr_name")
+                if attr_name is not None:
+                    refs.append(f"coordinate:{coord_name}.{attr_name}")
+
+    variables = report.get("variables")
+    if isinstance(variables, dict):
+        for var_name, items in variables.items():
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                current = item.get("current")
+                if not isinstance(current, dict):
+                    continue
+                attr_name = current.get("attr_name")
+                if attr_name is not None:
+                    refs.append(f"variable:{var_name}.{attr_name}")
+
+    deduped = list(dict.fromkeys(refs))
+    return deduped[:max_items]
+
+
+class CfcheckerPreflightError(RuntimeError):
+    """Raised when preflight detects metadata that cfchecker cannot handle."""
+
+    def __init__(self, report: dict[str, Any]) -> None:
+        refs = _preflight_offending_attr_refs(report)
+        if refs:
+            ref_text = ", ".join(refs)
+            message = (
+                "cfchecker preflight failed due to unsupported attribute value types. "
+                f"Offending attributes: {ref_text}."
+            )
+        else:
+            message = (
+                "cfchecker preflight failed due to unsupported attribute value types."
+            )
+        super().__init__(message)
+        self.report = report
+
+
 def _empty_report(cf_version: str = "1.12") -> dict[str, Any]:
     return {
         "cf_version": _format_cf_version(cf_version),
@@ -422,7 +490,7 @@ def _apply_ferret_convention_checks(ds: xr.Dataset, issues: dict[str, Any]) -> N
             issues,
             str(coord_name),
             {
-                "severity": "FATAL",
+                "severity": "ERROR",
                 "convention": "ferret",
                 "item": "coord_fillvalue_forbidden",
                 "message": (
@@ -477,6 +545,131 @@ def _recompute_counts(issues: dict[str, Any]) -> None:
             elif severity == "WARN":
                 counts["warn"] += 1
     issues["counts"] = counts
+
+
+def _cfchecker_safe_repr(value: Any, *, max_chars: int = 200) -> str:
+    text = repr(value)
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}..."
+
+
+def _is_cfchecker_attr_value_supported(value: Any) -> bool:
+    # cfchecker can raise KeyError on list-typed attributes.
+    return not isinstance(value, list)
+
+
+def _merge_issue_findings(target: dict[str, Any], source: dict[str, Any]) -> None:
+    target_global = target.setdefault("global", [])
+    source_global = source.get("global")
+    if isinstance(target_global, list) and isinstance(source_global, list):
+        target_global.extend(source_global)
+
+    for scope in ("coordinates", "variables"):
+        target_scope = target.setdefault(scope, {})
+        source_scope = source.get(scope)
+        if not isinstance(target_scope, dict) or not isinstance(source_scope, dict):
+            continue
+        for name, entries in source_scope.items():
+            if not isinstance(entries, list):
+                continue
+            bucket = target_scope.setdefault(str(name), [])
+            if isinstance(bucket, list):
+                bucket.extend(entries)
+
+
+def _cfchecker_preflight_invalid_attr_report(
+    ds: xr.Dataset, *, cf_version: str
+) -> dict[str, Any] | None:
+    report = _empty_report(cf_version=cf_version)
+    report["engine"] = "cfchecker"
+    report["engine_status"] = "invalid_input"
+    report["check_method"] = "cfchecker_preflight"
+
+    has_invalid = False
+    for attr_name, attr_value in ds.attrs.items():
+        if _is_cfchecker_attr_value_supported(attr_value):
+            continue
+        has_invalid = True
+        report["global"].append(
+            {
+                "severity": "FATAL",
+                "convention": "cf",
+                "item": "cfchecker_attr_type_invalid",
+                "message": (
+                    f"Global attribute '{attr_name}' has unsupported type "
+                    f"'{type(attr_value).__name__}' for cfchecker."
+                ),
+                "current": {
+                    "attr_name": str(attr_name),
+                    "type": type(attr_value).__name__,
+                    "value": _cfchecker_safe_repr(attr_value),
+                },
+                "expected": "scalar/string attribute values only",
+                "suggested_fix": "coerce_attr_scalar_or_string",
+            }
+        )
+
+    for coord_name, coord in ds.coords.items():
+        for attr_name, attr_value in coord.attrs.items():
+            if _is_cfchecker_attr_value_supported(attr_value):
+                continue
+            has_invalid = True
+            _append_coordinate_finding(
+                report,
+                str(coord_name),
+                {
+                    "severity": "FATAL",
+                    "convention": "cf",
+                    "item": "cfchecker_attr_type_invalid",
+                    "message": (
+                        f"Coordinate '{coord_name}' attribute '{attr_name}' has "
+                        f"unsupported type '{type(attr_value).__name__}' for cfchecker."
+                    ),
+                    "current": {
+                        "attr_name": str(attr_name),
+                        "type": type(attr_value).__name__,
+                        "value": _cfchecker_safe_repr(attr_value),
+                    },
+                    "expected": "scalar/string attribute values only",
+                    "suggested_fix": "coerce_attr_scalar_or_string",
+                },
+            )
+
+    for var_name, da in ds.data_vars.items():
+        for attr_name, attr_value in da.attrs.items():
+            if _is_cfchecker_attr_value_supported(attr_value):
+                continue
+            has_invalid = True
+            _append_variable_finding(
+                report,
+                str(var_name),
+                {
+                    "severity": "FATAL",
+                    "convention": "cf",
+                    "item": "cfchecker_attr_type_invalid",
+                    "message": (
+                        f"Variable '{var_name}' attribute '{attr_name}' has "
+                        f"unsupported type '{type(attr_value).__name__}' for cfchecker."
+                    ),
+                    "current": {
+                        "attr_name": str(attr_name),
+                        "type": type(attr_value).__name__,
+                        "value": _cfchecker_safe_repr(attr_value),
+                    },
+                    "expected": "scalar/string attribute values only",
+                    "suggested_fix": "coerce_attr_scalar_or_string",
+                },
+            )
+
+    if not has_invalid:
+        return None
+
+    report["notes"].append(
+        "Skipped cfchecker run because list-typed attribute values were found."
+    )
+    _recompute_counts(report)
+    return report
 
 
 def _as_netcdf_bytes(ds: xr.Dataset) -> bytes:
@@ -547,6 +740,16 @@ def _format_cf_version(version: str) -> str:
     if version.startswith("CF-"):
         return version
     return f"CF-{version}"
+
+
+def _infer_dataset_source_name(ds: xr.Dataset) -> str | None:
+    source = ds.encoding.get("source")
+    if source is None:
+        return None
+    try:
+        return Path(str(source)).name
+    except Exception:
+        return str(source)
 
 
 def _to_python_scalar(value: Any) -> Any:
@@ -725,6 +928,12 @@ def _run_cfchecker_on_dataset(
     cf_region_names_xml: str | None = None,
     cache_tables: bool = False,
 ) -> dict[str, Any]:
+    preflight_report = _cfchecker_preflight_invalid_attr_report(
+        ds, cf_version=cf_version
+    )
+    if preflight_report is not None:
+        raise CfcheckerPreflightError(preflight_report)
+
     # Import inside function so package can still be used for make_compliant
     # even if cfchecker/cfunits system dependencies are not installed.
     try:
@@ -839,6 +1048,8 @@ def check_dataset_compliant(
     selected_conventions = _normalize_requested_conventions(conventions)
     selected_engine = _normalize_requested_engine(engine)
     formatted_cf_version = _format_cf_version(cf_version)
+    source_name = _infer_dataset_source_name(ds)
+    generated_on = date.today().isoformat()
 
     if "cf" in selected_conventions:
         if selected_engine == "heuristic":
@@ -870,7 +1081,6 @@ def check_dataset_compliant(
                 if not fallback_to_heuristic:
                     raise
                 issues = heuristic_check_dataset(ds, cf_version=formatted_cf_version)
-                issues["engine_status"] = "unavailable"
                 issues["suggestions"] = {"variables": {}}
                 augment_issues_with_standard_name_suggestions(
                     ds,
@@ -878,13 +1088,25 @@ def check_dataset_compliant(
                     standard_name_table_xml,
                     domain=domain,
                 )
+                if isinstance(exc, CfcheckerPreflightError):
+                    _merge_issue_findings(issues, exc.report)
+                    issues["engine_status"] = "invalid_input"
+                    issues["notes"].append(
+                        "cfchecker input validation failed; returned heuristic checks with fatal preflight findings."
+                    )
+                else:
+                    issues["engine_status"] = "unavailable"
+                    issues["notes"].append(
+                        "cfchecker could not run; returned heuristic checks instead."
+                    )
                 issues["checker_error"] = {
                     "type": type(exc).__name__,
                     "message": str(exc),
                 }
-                issues["notes"].append(
-                    "cfchecker could not run; returned heuristic checks instead."
-                )
+                if isinstance(exc, CfcheckerPreflightError):
+                    issues["checker_error"]["offending_attrs"] = (
+                        _preflight_offending_attr_refs(exc.report, max_items=20)
+                    )
     else:
         issues = _empty_report(cf_version=cf_version)
         issues["notes"].append(
@@ -893,6 +1115,8 @@ def check_dataset_compliant(
 
     issues["conventions_checked"] = list(selected_conventions)
     issues["engine_requested"] = selected_engine
+    issues["source_file"] = source_name
+    issues["generated_on"] = generated_on
     _apply_selected_convention_checks(ds, issues, selected_conventions)
     _recompute_counts(issues)
 

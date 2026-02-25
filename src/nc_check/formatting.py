@@ -221,6 +221,12 @@ def _render_cf_report_with_rich(console: Any, report: dict[str, Any]) -> None:
     meta.add_row("Engine", _stringify(report.get("engine")))
     meta.add_row("Engine status", _stringify(report.get("engine_status")))
     meta.add_row("Check method", _stringify(report.get("check_method")))
+    source_file = report.get("source_file")
+    if source_file:
+        meta.add_row("File", _stringify(source_file))
+    generated_on = report.get("generated_on")
+    if generated_on:
+        meta.add_row("Generated", _stringify(generated_on))
     conventions_checked = report.get("conventions_checked")
     if isinstance(conventions_checked, list) and conventions_checked:
         meta.add_row("Conventions", ", ".join(str(c) for c in conventions_checked))
@@ -1190,12 +1196,20 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
     warn_count = warn_raw if isinstance(warn_raw, int) else 0
     problem_count = fatal_count + error_count
 
-    meta = _html_summary_table(
+    meta_rows: list[tuple[str, Any]] = [
+        ("CF version", report.get("cf_version")),
+        ("Engine", report.get("engine")),
+        ("Engine status", report.get("engine_status")),
+        ("Check method", report.get("check_method")),
+    ]
+    source_file = report.get("source_file")
+    if source_file:
+        meta_rows.append(("File", source_file))
+    generated_on = report.get("generated_on")
+    if generated_on:
+        meta_rows.append(("Generated", generated_on))
+    meta_rows.extend(
         [
-            ("CF version", report.get("cf_version")),
-            ("Engine", report.get("engine")),
-            ("Engine status", report.get("engine_status")),
-            ("Check method", report.get("check_method")),
             ("Conventions", conventions_text),
             (
                 "Counts",
@@ -1209,6 +1223,7 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
             ),
         ]
     )
+    meta = _html_summary_table(meta_rows)
 
     stats = _html_stat_strip(
         [
@@ -1287,10 +1302,15 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
 def render_pretty_report_html(report: Any) -> str:
     if not isinstance(report, dict):
         return _yaml_html_fallback(report)
+    file_text = ""
+    source_file = report.get("source_file")
+    if source_file:
+        file_text = f" · File: {escape(_stringify(source_file))}"
     intro = (
         "<p class='report-subtitle mb-0'>"
         f"Engine: {escape(_stringify(report.get('engine')))}"
         f" · Method: {escape(_stringify(report.get('check_method')))}"
+        f"{file_text}"
         "</p>"
     )
     return render_report_document(
