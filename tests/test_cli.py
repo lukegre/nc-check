@@ -350,7 +350,53 @@ def test_run_check_time_cover_mode_forwards_time_name(monkeypatch, tmp_path) -> 
     assert seen["time_name"] == "t"
     assert seen["report_format"] == "tables"
     assert seen["report_html_file"] is None
-    assert seen["kwargs"] == {}
+    assert seen["kwargs"] == {
+        "check_time_monotonic": False,
+        "check_time_regular_spacing": False,
+    }
+
+
+def test_run_check_time_cover_mode_forwards_time_flags(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "sample.nc"
+    xr.Dataset(
+        data_vars={"v": (("t",), [1.0])},
+        coords={"t": [0]},
+    ).to_netcdf(source)
+
+    seen: dict[str, object] = {}
+
+    def _fake_time(
+        ds: xr.Dataset,
+        *,
+        time_name: str | None = "time",
+        report_format: str = "tables",
+        report_html_file: str | None = None,
+        **kwargs: object,
+    ) -> None:
+        seen["time_name"] = time_name
+        seen["report_format"] = report_format
+        seen["report_html_file"] = report_html_file
+        seen["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "check_time_cover", _fake_time)
+
+    status = cli.run_check(
+        [
+            "time-cover",
+            str(source),
+            "--check-time-monotonic",
+            "--check-time-regular-spacing",
+        ]
+    )
+
+    assert status == 0
+    assert seen["time_name"] == "time"
+    assert seen["report_format"] == "tables"
+    assert seen["report_html_file"] is None
+    assert seen["kwargs"] == {
+        "check_time_monotonic": True,
+        "check_time_regular_spacing": True,
+    }
 
 
 def test_run_check_all_mode_with_save_report_uses_single_combined_report(
@@ -374,6 +420,8 @@ def test_run_check_all_mode_with_save_report_uses_single_combined_report(
         time_name: str | None = "time",
         check_lon_0_360: bool = False,
         check_lon_neg180_180: bool = False,
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
         report_format: str = "python",
         report_html_file: str | None = None,
     ) -> None:
@@ -384,6 +432,8 @@ def test_run_check_all_mode_with_save_report_uses_single_combined_report(
         seen["time_name"] = time_name
         seen["check_lon_0_360"] = check_lon_0_360
         seen["check_lon_neg180_180"] = check_lon_neg180_180
+        seen["check_time_monotonic"] = check_time_monotonic
+        seen["check_time_regular_spacing"] = check_time_regular_spacing
         seen["report_format"] = report_format
         seen["report_html_file"] = report_html_file
 
@@ -399,6 +449,8 @@ def test_run_check_all_mode_with_save_report_uses_single_combined_report(
     assert seen["time_name"] == "time"
     assert seen["check_lon_0_360"] is False
     assert seen["check_lon_neg180_180"] is False
+    assert seen["check_time_monotonic"] is False
+    assert seen["check_time_regular_spacing"] is False
     assert seen["report_format"] == "html"
     assert seen["report_html_file"] == source.with_name("sample_all_report.html")
 
@@ -422,6 +474,8 @@ def test_run_check_all_mode_forwards_coordinate_names(monkeypatch, tmp_path) -> 
         time_name: str | None = "time",
         check_lon_0_360: bool = False,
         check_lon_neg180_180: bool = False,
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
         report_format: str = "python",
         report_html_file: str | None = None,
     ) -> None:
@@ -432,6 +486,8 @@ def test_run_check_all_mode_forwards_coordinate_names(monkeypatch, tmp_path) -> 
         seen["time_name"] = time_name
         seen["check_lon_0_360"] = check_lon_0_360
         seen["check_lon_neg180_180"] = check_lon_neg180_180
+        seen["check_time_monotonic"] = check_time_monotonic
+        seen["check_time_regular_spacing"] = check_time_regular_spacing
         seen["report_format"] = report_format
         seen["report_html_file"] = report_html_file
 
@@ -458,6 +514,8 @@ def test_run_check_all_mode_forwards_coordinate_names(monkeypatch, tmp_path) -> 
     assert seen["time_name"] == "t"
     assert seen["check_lon_0_360"] is False
     assert seen["check_lon_neg180_180"] is False
+    assert seen["check_time_monotonic"] is False
+    assert seen["check_time_regular_spacing"] is False
     assert seen["report_format"] == "tables"
     assert seen["report_html_file"] is None
 
@@ -483,6 +541,8 @@ def test_run_check_all_mode_forwards_lon_convention_flags(
         time_name: str | None = "time",
         check_lon_0_360: bool = False,
         check_lon_neg180_180: bool = False,
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
         report_format: str = "python",
         report_html_file: str | None = None,
     ) -> None:
@@ -498,6 +558,44 @@ def test_run_check_all_mode_forwards_lon_convention_flags(
     assert status == 0
     assert seen["check_lon_0_360"] is True
     assert seen["check_lon_neg180_180"] is True
+
+
+def test_run_check_all_mode_forwards_time_flags(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "sample.nc"
+    xr.Dataset(
+        data_vars={"v": (("time",), [1.0])},
+        coords={"time": [0]},
+    ).to_netcdf(source)
+
+    seen: dict[str, object] = {}
+
+    def _fake_all(
+        ds: xr.Dataset,
+        *,
+        conventions: str | list[str] | tuple[str, ...] | None = None,
+        engine: str = "auto",
+        lon_name: str | None = None,
+        lat_name: str | None = None,
+        time_name: str | None = "time",
+        check_lon_0_360: bool = False,
+        check_lon_neg180_180: bool = False,
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
+        report_format: str = "python",
+        report_html_file: str | None = None,
+    ) -> None:
+        seen["check_time_monotonic"] = check_time_monotonic
+        seen["check_time_regular_spacing"] = check_time_regular_spacing
+
+    monkeypatch.setattr(cli, "_run_all_checks", _fake_all)
+
+    status = cli.run_check(
+        ["all", str(source), "--check-time-monotonic", "--check-time-regular-spacing"]
+    )
+
+    assert status == 0
+    assert seen["check_time_monotonic"] is True
+    assert seen["check_time_regular_spacing"] is True
 
 
 def test_run_check_all_mode_forwards_engine(monkeypatch, tmp_path) -> None:
@@ -519,6 +617,8 @@ def test_run_check_all_mode_forwards_engine(monkeypatch, tmp_path) -> None:
         time_name: str | None = "time",
         check_lon_0_360: bool = False,
         check_lon_neg180_180: bool = False,
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
         report_format: str = "python",
         report_html_file: str | None = None,
     ) -> None:

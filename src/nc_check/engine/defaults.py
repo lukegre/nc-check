@@ -140,9 +140,10 @@ def _status_from_time_cover_report(report: dict[str, Any]) -> SummaryStatus:
             ]
         )
     statuses: list[str] = []
-    time_missing = report.get("time_missing")
-    if isinstance(time_missing, dict):
-        statuses.append(_status_kind(time_missing.get("status")))
+    for check_name in ("time_missing", "time_monotonic", "time_regular_spacing"):
+        check_report = report.get(check_name)
+        if isinstance(check_report, dict):
+            statuses.append(_status_kind(check_report.get("status")))
     if not statuses:
         statuses.append(_status_kind(report.get("ok")))
     return _combine_statuses(statuses)
@@ -245,6 +246,10 @@ def _run_time_cover_v2_report(
     config = TimeCoverConfig(
         var_name=options.get("var_name"),
         time_name=options.get("time_name", "time"),
+        check_time_monotonic=bool(options.get("check_time_monotonic", False)),
+        check_time_regular_spacing=bool(
+            options.get("check_time_regular_spacing", False)
+        ),
     )
     return run_time_cover_report(ds, config=config)
 

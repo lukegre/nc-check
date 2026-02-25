@@ -150,6 +150,68 @@ def test_time_cover_reports_non_cf_time_types(
     assert "time_format" not in report
 
 
+def test_time_cover_monotonic_check_can_pass_and_fail() -> None:
+    lon = np.arange(0.0, 360.0, 120.0)
+    lat = np.array([-45.0, 45.0])
+    data = np.ones((3, lat.size, lon.size), dtype=float)
+
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 1, 2], "lat": lat, "lon": lon},
+    )
+    pass_report = ds_pass.check.time_cover(
+        var_name="sst",
+        check_time_monotonic=True,
+        report_format="python",
+    )
+    assert pass_report["time_monotonic"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 1], "lat": lat, "lon": lon},
+    )
+    fail_report = ds_fail.check.time_cover(
+        var_name="sst",
+        check_time_monotonic=True,
+        report_format="python",
+    )
+    assert fail_report["time_monotonic"]["status"] == "fail"
+    assert fail_report["time_monotonic"]["order_violation_count"] == 1
+    assert any(
+        item["id"] == "time.monotonic_increasing" for item in fail_report["checks"]
+    )
+
+
+def test_time_cover_regular_spacing_check_can_pass_and_fail() -> None:
+    lon = np.arange(0.0, 360.0, 120.0)
+    lat = np.array([-45.0, 45.0])
+    data = np.ones((4, lat.size, lon.size), dtype=float)
+
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 4, 6], "lat": lat, "lon": lon},
+    )
+    pass_report = ds_pass.check.time_cover(
+        var_name="sst",
+        check_time_regular_spacing=True,
+        report_format="python",
+    )
+    assert pass_report["time_regular_spacing"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 5, 7], "lat": lat, "lon": lon},
+    )
+    fail_report = ds_fail.check.time_cover(
+        var_name="sst",
+        check_time_regular_spacing=True,
+        report_format="python",
+    )
+    assert fail_report["time_regular_spacing"]["status"] == "fail"
+    assert fail_report["time_regular_spacing"]["irregular_interval_count"] == 1
+    assert any(item["id"] == "time.regular_spacing" for item in fail_report["checks"])
+
+
 def test_ocean_cover_without_var_name_checks_all_eligible_variables() -> None:
     lon = np.arange(0.0, 360.0, 30.0)
     lat = np.array([-30.0, 0.0, 30.0])

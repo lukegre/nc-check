@@ -175,6 +175,8 @@ class CFCoercerAccessor:
         *,
         var_name: str | None = None,
         time_name: str | None = "time",
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
         report_format: ReportFormat = "auto",
         report_html_file: str | Path | None = None,
     ) -> dict[str, Any] | str | None:
@@ -186,6 +188,10 @@ class CFCoercerAccessor:
             Optional variable to check. If omitted, checks all data variables.
         time_name
             Preferred name of the time dimension/coordinate.
+        check_time_monotonic
+            Verify time values are monotonic increasing.
+        check_time_regular_spacing
+            Verify time spacing is regular.
         report_format
             ``"python"``, ``"tables"``, ``"html"``, or ``"auto"``.
         report_html_file
@@ -201,6 +207,8 @@ class CFCoercerAccessor:
             self._ds,
             var_name=var_name,
             time_name=time_name,
+            check_time_monotonic=check_time_monotonic,
+            check_time_regular_spacing=check_time_regular_spacing,
             report_format=report_format,
             report_html_file=report_html_file,
         )
@@ -228,6 +236,8 @@ class CFCoercerAccessor:
         check_land_ocean_offset: bool = True,
         check_lon_0_360: bool = False,
         check_lon_neg180_180: bool = False,
+        check_time_monotonic: bool = False,
+        check_time_regular_spacing: bool = False,
         report_format: ReportFormat = "auto",
         report_html_file: str | Path | None = None,
     ) -> dict[str, Any] | str | None:
@@ -247,6 +257,8 @@ class CFCoercerAccessor:
             Forwarded to :meth:`ocean_cover` when enabled.
         check_lon_0_360, check_lon_neg180_180
             Optional longitude convention checks forwarded to :meth:`ocean_cover`.
+        check_time_monotonic, check_time_regular_spacing
+            Optional time checks forwarded to :meth:`time_cover`.
         report_format
             ``"python"``, ``"tables"``, ``"html"``, or ``"auto"``.
         report_html_file
@@ -296,6 +308,8 @@ class CFCoercerAccessor:
                 "time_cover": {
                     "var_name": var_name,
                     "time_name": time_name,
+                    "check_time_monotonic": check_time_monotonic,
+                    "check_time_regular_spacing": check_time_regular_spacing,
                 },
             },
         )

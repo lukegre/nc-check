@@ -602,8 +602,8 @@ def _single_ocean_report(
     lon_name: str,
     lat_name: str,
     time_name: str | None,
-    check_edge_of_map: bool,
-    check_land_ocean_offset: bool,
+    check_missing_lons: bool,
+    check_longitude_offset: bool,
     check_lon_0_360: bool,
     check_lon_neg180_180: bool,
 ) -> dict[str, Any]:
@@ -619,7 +619,7 @@ def _single_ocean_report(
         lon_name=lon_name,
         lat_name=lat_name,
         time_name=time_name,
-        enabled=check_edge_of_map,
+        enabled=check_missing_lons,
         context=context,
     )
     offset_check = LandOceanOffsetCheck(
@@ -627,7 +627,7 @@ def _single_ocean_report(
         lon_name=lon_name,
         lat_name=lat_name,
         time_name=time_name,
-        enabled=check_land_ocean_offset,
+        enabled=check_longitude_offset,
         context=context,
     )
     lon_0360_check = LongitudeConvention0360Check(
@@ -702,7 +702,7 @@ def _single_ocean_report(
             continue
         if check_id == "ocean.missing_longitude_bands":
             edge_result = result
-        elif check_id == "ocean.land_ocean_offset":
+        elif check_id in {"ocean.land_ocean_offset", "ocean.longitude_offset"}:
             offset_result = result
         elif check_id == "ocean.longitude_convention_0_360":
             lon_0360_result = result
@@ -724,14 +724,16 @@ def _single_ocean_report(
             "latitude_max": float(np.nanmax(context.lat_values)),
         },
         "checks_enabled": {
-            "edge_of_map": bool(check_edge_of_map),
-            "land_ocean_offset": bool(check_land_ocean_offset),
+            "edge_of_map": bool(check_missing_lons),
+            "land_ocean_offset": bool(check_longitude_offset),
+            "longitude_offset": bool(check_longitude_offset),
             "lon_0_360": bool(check_lon_0_360),
             "lon_neg180_180": bool(check_lon_neg180_180),
         },
         "edge_of_map": edge_result,
         "edge_sliver": edge_result,
         "land_ocean_offset": offset_result,
+        "longitude_offset": offset_result,
         "longitude_convention_0_360": lon_0360_result,
         "longitude_convention_-180_180": lon_neg180_180_result,
         "group": suite_report["group"],
@@ -750,8 +752,8 @@ def _build_ocean_cover_report(
     lon_name: str | None,
     lat_name: str | None,
     time_name: str | None,
-    check_edge_of_map: bool,
-    check_land_ocean_offset: bool,
+    check_missing_lons: bool,
+    check_longitude_offset: bool,
     check_lon_0_360: bool,
     check_lon_neg180_180: bool,
 ) -> dict[str, Any]:
@@ -777,8 +779,8 @@ def _build_ocean_cover_report(
             lon_name=lon_name,
             lat_name=lat_name,
             time_name=time_name,
-            check_edge_of_map=check_edge_of_map,
-            check_land_ocean_offset=check_land_ocean_offset,
+            check_missing_lons=check_missing_lons,
+            check_longitude_offset=check_longitude_offset,
             check_lon_0_360=check_lon_0_360,
             check_lon_neg180_180=check_lon_neg180_180,
         )
@@ -824,17 +826,29 @@ class OceanCoverCheck(Check):
         lon_name: str | None = None,
         lat_name: str | None = None,
         time_name: str | None = "time",
-        check_edge_of_map: bool = True,
-        check_land_ocean_offset: bool = True,
+        check_edge_of_map: bool | None = None,
+        check_missing_lons: bool | None = None,
+        check_land_ocean_offset: bool | None = None,
+        check_longitude_offset: bool | None = None,
         check_lon_0_360: bool = False,
         check_lon_neg180_180: bool = False,
     ) -> None:
+        resolved_check_missing_lons = (
+            check_missing_lons
+            if check_missing_lons is not None
+            else (True if check_edge_of_map is None else check_edge_of_map)
+        )
+        resolved_check_longitude_offset = (
+            check_longitude_offset
+            if check_longitude_offset is not None
+            else (True if check_land_ocean_offset is None else check_land_ocean_offset)
+        )
         self.var_name = var_name
         self.lon_name = lon_name
         self.lat_name = lat_name
         self.time_name = time_name
-        self.check_edge_of_map = check_edge_of_map
-        self.check_land_ocean_offset = check_land_ocean_offset
+        self.check_missing_lons = bool(resolved_check_missing_lons)
+        self.check_longitude_offset = bool(resolved_check_longitude_offset)
         self.check_lon_0_360 = check_lon_0_360
         self.check_lon_neg180_180 = check_lon_neg180_180
 
@@ -845,15 +859,34 @@ class OceanCoverCheck(Check):
             lon_name=self.lon_name,
             lat_name=self.lat_name,
             time_name=self.time_name,
-            check_edge_of_map=self.check_edge_of_map,
-            check_land_ocean_offset=self.check_land_ocean_offset,
+            check_missing_lons=self.check_missing_lons,
+            check_longitude_offset=self.check_longitude_offset,
             check_lon_0_360=self.check_lon_0_360,
             check_lon_neg180_180=self.check_lon_neg180_180,
         )
 
     def check(self, ds: xr.Dataset) -> CheckResult:
         report = self.run_report(ds)
-        statuses = leaf_statuses(report, ("edge_of_map", "land_ocean_offset"))
+        checks = report.get("checks")
+        statuses = (
+            [
+                str(item.get("status", "")).strip().lower()
+                for item in checks
+                if isinstance(item, dict)
+            ]
+            if isinstance(checks, list)
+            else leaf_statuses(
+                report,
+                (
+                    "edge_of_map",
+                    "land_ocean_offset",
+                    "longitude_offset",
+                    "longitude_convention_0_360",
+                    "longitude_convention_-180_180",
+                ),
+            )
+        )
+        statuses = [status for status in statuses if status]
         status = status_from_leaf_statuses(statuses)
         return CheckResult(
             check_id=self.id,
@@ -878,8 +911,10 @@ def check_ocean_cover(
     lon_name: str | None = None,
     lat_name: str | None = None,
     time_name: str | None = "time",
-    check_edge_of_map: bool = True,
-    check_land_ocean_offset: bool = True,
+    check_edge_of_map: bool | None = None,
+    check_missing_lons: bool | None = None,
+    check_land_ocean_offset: bool | None = None,
+    check_longitude_offset: bool | None = None,
     check_lon_0_360: bool = False,
     check_lon_neg180_180: bool = False,
     report_format: ReportFormat = "auto",
@@ -896,7 +931,9 @@ def check_ocean_cover(
         lat_name=lat_name,
         time_name=time_name,
         check_edge_of_map=check_edge_of_map,
+        check_missing_lons=check_missing_lons,
         check_land_ocean_offset=check_land_ocean_offset,
+        check_longitude_offset=check_longitude_offset,
         check_lon_0_360=check_lon_0_360,
         check_lon_neg180_180=check_lon_neg180_180,
     ).run_report(ds)

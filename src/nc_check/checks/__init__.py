@@ -7,7 +7,13 @@ from .ocean import (
     OceanCoverCheck,
     check_ocean_cover,
 )
-from .time_cover import TimeCoverCheck, check_time_cover
+from .time_cover import (
+    MissingTimeSlicesCheck,
+    TimeCoverCheck,
+    TimeMonotonicIncreasingCheck,
+    TimeRegularSpacingCheck,
+    check_time_cover,
+)
 
 __all__ = [
     "HeuristicCheck",
@@ -15,8 +21,11 @@ __all__ = [
     "LongitudeConvention0360Check",
     "LongitudeConventionNeg180180Check",
     "MissingLongitudeBandsCheck",
+    "MissingTimeSlicesCheck",
     "OceanCoverCheck",
     "TimeCoverCheck",
+    "TimeMonotonicIncreasingCheck",
+    "TimeRegularSpacingCheck",
     "check_ocean_cover",
     "check_time_cover",
     "heuristic_check_dataset",
