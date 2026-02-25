@@ -836,9 +836,10 @@ def _decoded_numeric_time_bounds(
     except Exception:
         return bounds
 
-    if len(decoded) != 2:
+    decoded_values = np.asarray(decoded, dtype=object).reshape(-1)
+    if decoded_values.size != 2:
         return bounds
-    return _to_python_scalar(decoded[0]), _to_python_scalar(decoded[1])
+    return _to_python_scalar(decoded_values[0]), _to_python_scalar(decoded_values[1])
 
 
 def _format_time_coverage_value(value: Any) -> str:
