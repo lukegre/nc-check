@@ -7,6 +7,7 @@ This folder contains user and contributor docs for `nc-check`.
 - [CLI guide](cli.md)
 - [Python API guide](python-api.md)
 - [Checks and reports](checks-and-reports.md)
+- [Add a check suite](add-check-suite.md)
 - [Troubleshooting](troubleshooting.md)
 - [Development](development.md)
 

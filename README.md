@@ -60,6 +60,7 @@ nc-comply input.nc output.nc
 - [CLI guide](docs/cli.md)
 - [Python API guide](docs/python-api.md)
 - [Checks and reports](docs/checks-and-reports.md)
+- [Add a check suite](docs/add-check-suite.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Development](docs/development.md)
 
