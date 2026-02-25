@@ -107,6 +107,16 @@ def _build_check_parser() -> argparse.ArgumentParser:
         default="time",
         help="Time coordinate/dimension name for time-aware checks (default: time).",
     )
+    ocean_cover.add_argument(
+        "--check-lon-0-360",
+        action="store_true",
+        help="Enable longitude convention check for [0, 360].",
+    )
+    ocean_cover.add_argument(
+        "--check-lon-neg180-180",
+        action="store_true",
+        help="Enable longitude convention check for [-180, 180].",
+    )
 
     time_cover = subparsers.add_parser(
         "time-cover",
@@ -117,6 +127,16 @@ def _build_check_parser() -> argparse.ArgumentParser:
         "--time-name",
         default="time",
         help="Explicit time coordinate/dimension name (default: time).",
+    )
+    time_cover.add_argument(
+        "--check-time-monotonic",
+        action="store_true",
+        help="Enable monotonic-time-order check.",
+    )
+    time_cover.add_argument(
+        "--check-time-regular-spacing",
+        action="store_true",
+        help="Enable regular-time-spacing check.",
     )
 
     check_all = subparsers.add_parser(
@@ -150,6 +170,26 @@ def _build_check_parser() -> argparse.ArgumentParser:
         default="time",
         help="Explicit time coordinate/dimension name for ocean/time checks (default: time).",
     )
+    check_all.add_argument(
+        "--check-lon-0-360",
+        action="store_true",
+        help="Enable longitude convention check for [0, 360] in ocean checks.",
+    )
+    check_all.add_argument(
+        "--check-lon-neg180-180",
+        action="store_true",
+        help="Enable longitude convention check for [-180, 180] in ocean checks.",
+    )
+    check_all.add_argument(
+        "--check-time-monotonic",
+        action="store_true",
+        help="Enable monotonic-time-order check in time checks.",
+    )
+    check_all.add_argument(
+        "--check-time-regular-spacing",
+        action="store_true",
+        help="Enable regular-time-spacing check in time checks.",
+    )
 
     return parser
 
@@ -170,6 +210,12 @@ def run_check(argv: list[str] | None = None) -> int:
     lon_name = getattr(args, "lon_name", None)
     lat_name = getattr(args, "lat_name", None)
     time_name = getattr(args, "time_name", "time")
+    check_lon_0_360 = bool(getattr(args, "check_lon_0_360", False))
+    check_lon_neg180_180 = bool(getattr(args, "check_lon_neg180_180", False))
+    check_time_monotonic = bool(getattr(args, "check_time_monotonic", False))
+    check_time_regular_spacing = bool(
+        getattr(args, "check_time_regular_spacing", False)
+    )
 
     try:
         with xr.open_dataset(input_file, chunks={}) as ds:
@@ -187,6 +233,8 @@ def run_check(argv: list[str] | None = None) -> int:
                     lon_name=lon_name,
                     lat_name=lat_name,
                     time_name=time_name,
+                    check_lon_0_360=check_lon_0_360,
+                    check_lon_neg180_180=check_lon_neg180_180,
                     report_format=report_format,
                     report_html_file=report_html_file,
                 )
@@ -194,6 +242,8 @@ def run_check(argv: list[str] | None = None) -> int:
                 check_time_cover(
                     ds,
                     time_name=time_name,
+                    check_time_monotonic=check_time_monotonic,
+                    check_time_regular_spacing=check_time_regular_spacing,
                     report_format=report_format,
                     report_html_file=report_html_file,
                 )
@@ -205,6 +255,10 @@ def run_check(argv: list[str] | None = None) -> int:
                     lon_name=lon_name,
                     lat_name=lat_name,
                     time_name=time_name,
+                    check_lon_0_360=check_lon_0_360,
+                    check_lon_neg180_180=check_lon_neg180_180,
+                    check_time_monotonic=check_time_monotonic,
+                    check_time_regular_spacing=check_time_regular_spacing,
                     report_format=report_format,
                     report_html_file=report_html_file,
                 )
@@ -239,6 +293,10 @@ def _run_all_checks(
     lon_name: str | None,
     lat_name: str | None,
     time_name: str | None,
+    check_lon_0_360: bool,
+    check_lon_neg180_180: bool,
+    check_time_monotonic: bool,
+    check_time_regular_spacing: bool,
     report_format: str,
     report_html_file: str | Path | None,
 ) -> dict[str, object] | str | None:
@@ -248,6 +306,10 @@ def _run_all_checks(
         lon_name=lon_name,
         lat_name=lat_name,
         time_name=time_name,
+        check_lon_0_360=check_lon_0_360,
+        check_lon_neg180_180=check_lon_neg180_180,
+        check_time_monotonic=check_time_monotonic,
+        check_time_regular_spacing=check_time_regular_spacing,
         report_format=report_format,
         report_html_file=report_html_file,
     )

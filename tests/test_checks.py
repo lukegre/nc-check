@@ -93,3 +93,17 @@ def test_time_cover_check_status_error_for_missing_time_slices() -> None:
     result = TimeCoverCheck(var_name="sst").check(ds)
 
     assert result.status == CheckStatus.error
+
+
+def test_time_cover_check_status_error_for_time_order_violation() -> None:
+    lon = np.arange(0.0, 360.0, 60.0)
+    lat = np.array([-45.0, 45.0])
+    data = np.ones((3, lat.size, lon.size), dtype=float)
+    ds = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 1], "lat": lat, "lon": lon},
+    )
+
+    result = TimeCoverCheck(var_name="sst", check_time_monotonic=True).check(ds)
+
+    assert result.status == CheckStatus.error

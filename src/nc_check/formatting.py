@@ -210,7 +210,8 @@ def _render_cf_report_with_rich(console: Any, report: dict[str, Any]) -> None:
     summary.add_column("k", style=_RICH_LABEL_STYLE, justify="left")
     summary.add_column("v", style=_RICH_TEXT_STYLE, justify="left")
     summary.add_row("Outcome", Text(outcome[0], style=outcome[1]))
-    summary.add_row("Errors + fatals", str(non_compliant))
+    summary.add_row("Fatals", str(fatal))
+    summary.add_row("Errors", str(error))
     summary.add_row("Warnings", str(warn))
     console.print(Panel(summary, title="Summary", border_style=_RICH_BORDER_STYLE))
 
@@ -522,17 +523,23 @@ def _render_ocean_report_with_rich(console: Any, report: dict[str, Any]) -> None
         table.add_column("Point", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Requested", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Actual", style=_RICH_TEXT_STYLE, justify="left")
-        table.add_column("Observed missing", style=_RICH_TEXT_STYLE, justify="left")
-        table.add_column("Expected missing", style=_RICH_TEXT_STYLE, justify="left")
+        table.add_column("Observed value", style=_RICH_TEXT_STYLE, justify="left")
+        table.add_column("Expected value", style=_RICH_TEXT_STYLE, justify="left")
         for entry in mismatches:
             if not isinstance(entry, dict):
                 continue
+            observed_value = entry.get("observed_value")
+            if observed_value is None:
+                observed_value = entry.get("observed_missing")
+            expected_value = entry.get("expected_value")
+            if expected_value is None:
+                expected_value = entry.get("expected_missing")
             table.add_row(
                 _stringify(entry.get("point")),
                 f"({_stringify(entry.get('requested_lat'))}, {_stringify(entry.get('requested_lon'))})",
                 f"({_stringify(entry.get('actual_lat'))}, {_stringify(entry.get('actual_lon'))})",
-                _stringify(entry.get("observed_missing")),
-                _stringify(entry.get("expected_missing")),
+                _stringify(observed_value),
+                _stringify(expected_value),
             )
         console.print(table)
 
@@ -811,22 +818,58 @@ def print_pretty_full_report(report: Any) -> None:
             Panel(summary_table, title="Summary", border_style=_RICH_BORDER_STYLE)
         )
 
-        checks = report.get("check_summary")
-        if isinstance(checks, list) and checks:
-            checks_table = Table(
-                title="Check Summary",
+        groups = report.get("groups")
+        if isinstance(groups, dict) and groups:
+            groups_table = Table(
+                title="Group Summary",
                 title_style=_RICH_TITLE_STYLE,
                 header_style=_RICH_HEADER_STYLE,
                 border_style=_RICH_TABLE_BORDER_STYLE,
             )
+            groups_table.add_column("Group", style=_RICH_TEXT_STYLE, justify="left")
+            groups_table.add_column("Status", style=_RICH_TEXT_STYLE, justify="left")
+            groups_table.add_column("Checks", style=_RICH_TEXT_STYLE, justify="right")
+            groups_table.add_column("Failing", style=_RICH_TEXT_STYLE, justify="right")
+            groups_table.add_column(
+                "Warn/skip", style=_RICH_TEXT_STYLE, justify="right"
+            )
+            for group_name, item in groups.items():
+                if not isinstance(item, dict):
+                    continue
+                groups_table.add_row(
+                    _stringify(group_name),
+                    Text(
+                        _stringify(item.get("status")).upper(),
+                        style=_status_style(item.get("status")),
+                    ),
+                    _stringify(item.get("checks_run")),
+                    _stringify(item.get("failing_checks")),
+                    _stringify(item.get("warnings_or_skips")),
+                )
+            console.print(groups_table)
+
+        checks = report.get("checks")
+        if isinstance(checks, list) and checks:
+            checks_table = Table(
+                title="Atomic Check Summary",
+                title_style=_RICH_TITLE_STYLE,
+                header_style=_RICH_HEADER_STYLE,
+                border_style=_RICH_TABLE_BORDER_STYLE,
+            )
+            checks_table.add_column("Group", style=_RICH_TEXT_STYLE, justify="left")
             checks_table.add_column("Check", style=_RICH_TEXT_STYLE, justify="left")
             checks_table.add_column("Status", style=_RICH_TEXT_STYLE, justify="left")
             checks_table.add_column("Detail", style=_RICH_TEXT_STYLE, justify="left")
             for item in checks:
                 if not isinstance(item, dict):
                     continue
+                check_id = _stringify(item.get("id"))
+                variable = item.get("variable")
+                if variable is not None:
+                    check_id = f"{check_id} [{_stringify(variable)}]"
                 checks_table.add_row(
-                    _stringify(item.get("check")),
+                    _stringify(item.get("group")),
+                    check_id,
                     Text(
                         _stringify(item.get("status")).upper(),
                         style=_status_style(item.get("status")),
@@ -834,6 +877,36 @@ def print_pretty_full_report(report: Any) -> None:
                     _stringify(item.get("detail")),
                 )
             console.print(checks_table)
+        else:
+            check_summary = report.get("check_summary")
+            if not isinstance(check_summary, list) or not check_summary:
+                check_summary = []
+            if check_summary:
+                checks_table = Table(
+                    title="Check Summary",
+                    title_style=_RICH_TITLE_STYLE,
+                    header_style=_RICH_HEADER_STYLE,
+                    border_style=_RICH_TABLE_BORDER_STYLE,
+                )
+                checks_table.add_column("Check", style=_RICH_TEXT_STYLE, justify="left")
+                checks_table.add_column(
+                    "Status", style=_RICH_TEXT_STYLE, justify="left"
+                )
+                checks_table.add_column(
+                    "Detail", style=_RICH_TEXT_STYLE, justify="left"
+                )
+                for item in check_summary:
+                    if not isinstance(item, dict):
+                        continue
+                    checks_table.add_row(
+                        _stringify(item.get("check")),
+                        Text(
+                            _stringify(item.get("status")).upper(),
+                            style=_status_style(item.get("status")),
+                        ),
+                        _stringify(item.get("detail")),
+                    )
+                console.print(checks_table)
 
         reports = (
             report.get("reports") if isinstance(report.get("reports"), dict) else {}
@@ -1188,13 +1261,9 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
         len(variable_findings) if isinstance(variable_findings, dict) else 0
     )
 
-    fatal_raw = counts.get("fatal", 0)
-    error_raw = counts.get("error", 0)
-    warn_raw = counts.get("warn", 0)
-    fatal_count = fatal_raw if isinstance(fatal_raw, int) else 0
-    error_count = error_raw if isinstance(error_raw, int) else 0
-    warn_count = warn_raw if isinstance(warn_raw, int) else 0
-    problem_count = fatal_count + error_count
+    fatal_count = _count_to_int(counts.get("fatal", 0))
+    error_count = _count_to_int(counts.get("error", 0))
+    warn_count = _count_to_int(counts.get("warn", 0))
 
     meta_rows: list[tuple[str, Any]] = [
         ("CF version", report.get("cf_version")),
@@ -1228,7 +1297,8 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
     stats = _html_stat_strip(
         [
             ("Variables checked", variable_count, None),
-            ("Errors + fatals", problem_count, "fail" if problem_count > 0 else None),
+            ("Fatals", fatal_count, "fail" if fatal_count > 0 else None),
+            ("Errors", error_count, "fail" if error_count > 0 else None),
             ("Warnings", warn_count, "warn" if warn_count > 0 else None),
             (
                 "Engine status",
@@ -1460,8 +1530,16 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
                 escape(
                     f"({_stringify(entry.get('actual_lat'))}, {_stringify(entry.get('actual_lon'))})"
                 ),
-                escape(_stringify(entry.get("observed_missing"))),
-                escape(_stringify(entry.get("expected_missing"))),
+                escape(
+                    _stringify(
+                        entry.get("observed_value", entry.get("observed_missing"))
+                    )
+                ),
+                escape(
+                    _stringify(
+                        entry.get("expected_value", entry.get("expected_missing"))
+                    )
+                ),
             ]
             for entry in mismatches
             if isinstance(entry, dict)
@@ -1474,8 +1552,8 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
                         "Point",
                         "Requested",
                         "Actual",
-                        "Observed missing",
-                        "Expected missing",
+                        "Observed value",
+                        "Expected value",
                     ],
                     rows,
                 ),
@@ -1859,17 +1937,50 @@ def _multi_variable_time_cover_body(report: dict[str, Any]) -> str:
 
 def _full_report_sections(report: dict[str, Any]) -> str:
     summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
-    check_summary = report.get("check_summary")
     summary_rows: list[tuple[str, Any, str]] = []
-    if isinstance(check_summary, list):
-        for item in check_summary:
+    checks = report.get("checks")
+    if isinstance(checks, list):
+        for item in checks:
             if not isinstance(item, dict):
                 continue
+            check_id = _stringify(item.get("id"))
+            variable = item.get("variable")
+            if variable is not None:
+                check_id = f"{check_id} [{_stringify(variable)}]"
+            group = _stringify(item.get("group"))
+            label = f"{group}: {check_id}" if group else check_id
             summary_rows.append(
+                (label, item.get("status"), _stringify(item.get("detail")))
+            )
+    else:
+        check_summary = report.get("check_summary")
+        if isinstance(check_summary, list):
+            for item in check_summary:
+                if not isinstance(item, dict):
+                    continue
+                summary_rows.append(
+                    (
+                        _stringify(item.get("check")),
+                        item.get("status"),
+                        _stringify(item.get("detail")),
+                    )
+                )
+
+    group_rows: list[tuple[str, Any, str]] = []
+    groups = report.get("groups")
+    if isinstance(groups, dict):
+        for group_name, item in groups.items():
+            if not isinstance(item, dict):
+                continue
+            group_rows.append(
                 (
-                    _stringify(item.get("check")),
+                    _stringify(group_name),
                     item.get("status"),
-                    _stringify(item.get("detail")),
+                    (
+                        f"checks={_stringify(item.get('checks_run'))} "
+                        f"fail={_stringify(item.get('failing_checks'))} "
+                        f"warn_or_skip={_stringify(item.get('warnings_or_skips'))}"
+                    ),
                 )
             )
 
@@ -1905,16 +2016,24 @@ def _full_report_sections(report: dict[str, Any]) -> str:
     meta = _html_summary_table(
         [
             ("Overall OK", summary.get("overall_ok")),
-            ("Enabled checks", enabled_checks or "none"),
+            ("Enabled groups", enabled_checks or "none"),
         ]
     )
 
-    sections: list[str] = [
+    sections: list[str] = []
+    if group_rows:
+        sections.append(
+            _html_static_section(
+                "Group Summary",
+                _html_check_summary_table(group_rows),
+            )
+        )
+    sections.append(
         _html_static_section(
             "Combined Check Summary",
             _html_check_summary_table(summary_rows),
         )
-    ]
+    )
 
     reports = report.get("reports")
     if isinstance(reports, dict):

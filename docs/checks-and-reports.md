@@ -17,11 +17,25 @@ If CF checker cannot run and fallback is enabled, output includes `checker_error
 - `edge_of_map`: persistent missing longitude columns (sliver/edge detection)
 - `land_ocean_offset`: land/ocean reference-point sanity check on global grids
 
+Ocean cover is returned as a **suite** report:
+
+- `suite`: suite name (`"ocean_cover"`)
+- `checks`: list of atomic checks (id, name, status, detail, result)
+- `summary`: suite totals and overall status
+
+Internally this is built by passing a list of atomic checks to the shared `Suite` class.
+
 When `var_name` is omitted, it checks all variables containing inferred lon/lat dims and returns a multi-variable report.
 
 ## Time Cover Check
 
 `ds.check.time_cover()` detects missing time slices by variable and reports contiguous missing ranges.
+
+Time cover is returned as a **suite** report:
+
+- `suite`: suite name (`"time_cover"`)
+- `checks`: list of atomic checks (currently `time.missing_slices`)
+- `summary`: suite totals and overall status
 
 If a variable has no resolved time dim, the time-missing subcheck is marked as skipped (`skipped_no_time`).
 

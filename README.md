@@ -68,3 +68,10 @@ Local docs site:
 ```bash
 uv run --with mkdocs-material mkdocs serve
 ```
+
+## Development Test Run
+
+```bash
+uv sync --group dev
+uv run --group dev python -m pytest
+```

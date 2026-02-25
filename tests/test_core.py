@@ -22,6 +22,31 @@ def test_make_compliant_creates_missing_axis_coordinates() -> None:
     assert out["lon"].encoding.get("_FillValue") is None
 
 
+def test_make_compliant_normalizes_global_conventions_key_and_value() -> None:
+    ds = xr.Dataset(
+        data_vars={"field": (("lat", "lon"), np.ones((1, 1)))},
+        coords={"lat": [10.0], "lon": [20.0]},
+        attrs={"conventions": "cf-1.6, ACDD-1.3"},
+    )
+
+    out = core.make_dataset_compliant(ds)
+
+    assert out.attrs["Conventions"] == "CF-1.12, ACDD-1.3"
+    assert "conventions" not in out.attrs
+
+
+def test_make_compliant_replaces_stale_cf_token_in_conventions() -> None:
+    ds = xr.Dataset(
+        data_vars={"field": (("lat", "lon"), np.ones((1, 1)))},
+        coords={"lat": [10.0], "lon": [20.0]},
+        attrs={"Conventions": "CF-1.6, ferret"},
+    )
+
+    out = core.make_dataset_compliant(ds)
+
+    assert out.attrs["Conventions"] == "CF-1.12, ferret"
+
+
 def test_make_compliant_casts_string_lat_lon_coords_to_float() -> None:
     ds = xr.Dataset(
         data_vars={"field": (("lat", "lon"), np.ones((2, 2)))},
@@ -170,6 +195,88 @@ def test_check_dataset_compliant_reports_missing_cfchecker_with_no_fallback(
 
     with pytest.raises(RuntimeError, match="cfchecker is not installed"):
         core.check_dataset_compliant(ds, fallback_to_heuristic=False)
+
+
+def test_run_cfchecker_on_dataset_flags_invalid_attribute_types_without_import(
+    monkeypatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def _fake_import(name, *args, **kwargs):
+        if name == "cfchecker":
+            raise AssertionError("cfchecker import should be skipped by preflight")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    ds = xr.Dataset(
+        data_vars={"tos": (("time",), [1.0], {"source": ["a.nc", "b.nc"]})},
+        coords={"time": [0]},
+    )
+
+    with pytest.raises(core.CfcheckerPreflightError) as exc_info:
+        core._run_cfchecker_on_dataset(ds)
+
+    report = exc_info.value.report
+    assert report["engine"] == "cfchecker"
+    assert report["engine_status"] == "invalid_input"
+    assert report["check_method"] == "cfchecker_preflight"
+    assert report["counts"]["fatal"] >= 1
+    assert "tos" in report["variables"]
+    assert any(
+        item.get("item") == "cfchecker_attr_type_invalid"
+        and item.get("severity") == "FATAL"
+        for item in report["variables"]["tos"]
+    )
+
+
+def test_check_dataset_compliant_raises_for_invalid_cfchecker_attrs_without_fallback() -> (
+    None
+):
+    ds = xr.Dataset(
+        data_vars={"tos": (("time",), [1.0], {"source": ["a.nc", "b.nc"]})},
+        coords={"time": [0]},
+    )
+
+    with pytest.raises(core.CfcheckerPreflightError):
+        core.check_dataset_compliant(
+            ds,
+            engine="cfchecker",
+            fallback_to_heuristic=False,
+            conventions="cf",
+            standard_name_table_xml=None,
+            report_format="python",
+        )
+
+
+def test_check_dataset_compliant_uses_heuristic_backup_for_invalid_cfchecker_attrs() -> (
+    None
+):
+    ds = xr.Dataset(
+        data_vars={"tos": (("time",), [1.0], {"source": ["a.nc", "b.nc"]})},
+        coords={"time": [0]},
+    )
+
+    issues = core.check_dataset_compliant(
+        ds,
+        engine="cfchecker",
+        fallback_to_heuristic=True,
+        conventions="cf",
+        standard_name_table_xml=None,
+        report_format="python",
+    )
+
+    assert issues["engine"] == "heuristic"
+    assert issues["check_method"] == "heuristic"
+    assert issues["engine_status"] == "invalid_input"
+    assert issues["checker_error"]["type"] == "CfcheckerPreflightError"
+    assert issues["counts"]["fatal"] >= 1
+    assert "tos" in issues["variables"]
+    assert any(
+        item.get("item") == "cfchecker_attr_type_invalid"
+        and item.get("severity") == "FATAL"
+        for item in issues["variables"]["tos"]
+    )
 
 
 def test_check_dataset_compliant_falls_back_when_cfchecker_missing(monkeypatch) -> None:

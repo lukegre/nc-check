@@ -33,6 +33,10 @@ def test_edge_of_map_detects_persistent_missing_longitudes() -> None:
         {"start": "0.0", "end": "0.0"},
         {"start": "330.0", "end": "330.0"},
     ]
+    assert report["suite"] == "ocean_cover"
+    assert report["checks"][0]["id"] == "ocean.missing_longitude_bands"
+    assert report["checks"][0]["status"] == "fail"
+    assert report["summary"]["overall_status"] == "fail"
 
 
 def test_land_ocean_offset_check_detects_shifted_data() -> None:
@@ -71,6 +75,41 @@ def test_land_ocean_offset_check_detects_shifted_data() -> None:
     )
     assert bad["land_ocean_offset"]["status"] == "fail"
     assert bad["land_ocean_offset"]["mismatch_count"] >= 1
+    mismatches = (
+        bad["land_ocean_offset"]["land_mismatches"]
+        + bad["land_ocean_offset"]["ocean_mismatches"]
+    )
+    assert mismatches
+    first = mismatches[0]
+    assert "observed_value" in first
+    assert "expected_value" in first
+    assert first["expected_value"] in {"nan", "non-nan"}
+    assert isinstance(first["observed_value"], str)
+
+
+def test_land_ocean_offset_check_skips_boolean_dtype() -> None:
+    lon = np.arange(-180.0, 181.0, 1.0)
+    lat = np.arange(-90.0, 91.0, 1.0)
+    data = np.ones((lat.size, lon.size), dtype=bool)
+
+    ds = xr.Dataset(
+        data_vars={"mask": (("lat", "lon"), data)},
+        coords={"lat": lat, "lon": lon},
+    )
+
+    report = check_ocean_cover(
+        ds,
+        var_name="mask",
+        check_edge_of_map=False,
+        report_format="python",
+    )
+
+    offset = report["land_ocean_offset"]
+    assert offset["status"] == "skipped_bool_dtype"
+    assert offset["mismatch_count"] == 0
+    assert offset["land_mismatches"] == []
+    assert offset["ocean_mismatches"] == []
+    assert "boolean data" in offset["note"]
 
 
 def test_time_cover_reports_ranges() -> None:
@@ -96,6 +135,10 @@ def test_time_cover_reports_ranges() -> None:
         {"start_index": 1, "end_index": 2, "start": "1", "end": "2"}
     ]
     assert "time_format" not in report
+    assert report["suite"] == "time_cover"
+    assert report["checks"][0]["id"] == "time.missing_slices"
+    assert report["checks"][0]["status"] == "fail"
+    assert report["summary"]["overall_status"] == "fail"
 
 
 def test_time_cover_accepts_xarray_decoded_time_coordinates() -> None:
@@ -142,6 +185,68 @@ def test_time_cover_reports_non_cf_time_types(
     assert "time_format" not in report
 
 
+def test_time_cover_monotonic_check_can_pass_and_fail() -> None:
+    lon = np.arange(0.0, 360.0, 120.0)
+    lat = np.array([-45.0, 45.0])
+    data = np.ones((3, lat.size, lon.size), dtype=float)
+
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 1, 2], "lat": lat, "lon": lon},
+    )
+    pass_report = ds_pass.check.time_cover(
+        var_name="sst",
+        check_time_monotonic=True,
+        report_format="python",
+    )
+    assert pass_report["time_monotonic"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 1], "lat": lat, "lon": lon},
+    )
+    fail_report = ds_fail.check.time_cover(
+        var_name="sst",
+        check_time_monotonic=True,
+        report_format="python",
+    )
+    assert fail_report["time_monotonic"]["status"] == "fail"
+    assert fail_report["time_monotonic"]["order_violation_count"] == 1
+    assert any(
+        item["id"] == "time.monotonic_increasing" for item in fail_report["checks"]
+    )
+
+
+def test_time_cover_regular_spacing_check_can_pass_and_fail() -> None:
+    lon = np.arange(0.0, 360.0, 120.0)
+    lat = np.array([-45.0, 45.0])
+    data = np.ones((4, lat.size, lon.size), dtype=float)
+
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 4, 6], "lat": lat, "lon": lon},
+    )
+    pass_report = ds_pass.check.time_cover(
+        var_name="sst",
+        check_time_regular_spacing=True,
+        report_format="python",
+    )
+    assert pass_report["time_regular_spacing"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": [0, 2, 5, 7], "lat": lat, "lon": lon},
+    )
+    fail_report = ds_fail.check.time_cover(
+        var_name="sst",
+        check_time_regular_spacing=True,
+        report_format="python",
+    )
+    assert fail_report["time_regular_spacing"]["status"] == "fail"
+    assert fail_report["time_regular_spacing"]["irregular_interval_count"] == 1
+    assert any(item["id"] == "time.regular_spacing" for item in fail_report["checks"])
+
+
 def test_ocean_cover_without_var_name_checks_all_eligible_variables() -> None:
     lon = np.arange(0.0, 360.0, 30.0)
     lat = np.array([-30.0, 0.0, 30.0])
@@ -169,6 +274,9 @@ def test_ocean_cover_without_var_name_checks_all_eligible_variables() -> None:
     assert report["reports"]["sst"]["edge_of_map"]["status"] == "fail"
     assert report["reports"]["sss"]["edge_of_map"]["status"] == "pass"
     assert report["ok"] is False
+    assert report["suite"] == "ocean_cover"
+    assert report["summary"]["checks_run"] == 4
+    assert report["summary"]["failing_checks"] == 1
 
 
 def test_time_cover_without_var_name_checks_all_variables() -> None:
@@ -198,6 +306,9 @@ def test_time_cover_without_var_name_checks_all_variables() -> None:
     assert report["reports"]["sss"]["time_missing"]["status"] == "pass"
     assert report["reports"]["mask"]["time_missing"]["status"] == "skipped_no_time"
     assert report["ok"] is False
+    assert report["suite"] == "time_cover"
+    assert report["summary"]["checks_run"] == 3
+    assert report["summary"]["failing_checks"] == 1
 
 
 def test_ocean_cover_all_checks_can_be_disabled() -> None:
@@ -217,6 +328,76 @@ def test_ocean_cover_all_checks_can_be_disabled() -> None:
     assert report["edge_of_map"]["status"] == "skipped"
     assert report["land_ocean_offset"]["status"] == "skipped"
     assert report["ok"] is True
+
+
+def test_ocean_cover_longitude_convention_0_360_check() -> None:
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [0.0, 120.0, 240.0]},
+    )
+    pass_report = check_ocean_cover(
+        ds_pass,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_0_360=True,
+        report_format="python",
+    )
+    assert pass_report["longitude_convention_0_360"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [-20.0, 120.0, 240.0]},
+    )
+    fail_report = check_ocean_cover(
+        ds_fail,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_0_360=True,
+        report_format="python",
+    )
+    assert fail_report["longitude_convention_0_360"]["status"] == "fail"
+    assert fail_report["longitude_convention_0_360"]["invalid_longitude_count"] == 1
+    assert any(
+        item["id"] == "ocean.longitude_convention_0_360"
+        for item in fail_report["checks"]
+    )
+
+
+def test_ocean_cover_longitude_convention_neg180_180_check() -> None:
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [-120.0, 0.0, 120.0]},
+    )
+    pass_report = check_ocean_cover(
+        ds_pass,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_neg180_180=True,
+        report_format="python",
+    )
+    assert pass_report["longitude_convention_-180_180"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [-120.0, 0.0, 240.0]},
+    )
+    fail_report = check_ocean_cover(
+        ds_fail,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_neg180_180=True,
+        report_format="python",
+    )
+    assert fail_report["longitude_convention_-180_180"]["status"] == "fail"
+    assert fail_report["longitude_convention_-180_180"]["invalid_longitude_count"] == 1
+    assert any(
+        item["id"] == "ocean.longitude_convention_-180_180"
+        for item in fail_report["checks"]
+    )
 
 
 def test_ocean_cover_html_report_has_collapsible_sections_and_modern_style() -> None:
