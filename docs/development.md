@@ -43,8 +43,12 @@ mkdocs serve
 
 ## Project Layout
 
-- `src/nc_check/core.py`: compliance checks and compliance coercion
-- `src/nc_check/ocean.py`: ocean/time coverage checks
+- `src/nc_check/core/compliance.py`: compliance checks and compliance coercion
+- `src/nc_check/core/check.py`: pluggable check and fix abstractions
+- `src/nc_check/core/coverage.py`: shared coverage-check helpers
+- `src/nc_check/checks/heuristic.py`: heuristic metadata checks
+- `src/nc_check/checks/ocean.py`: ocean coverage checks
+- `src/nc_check/checks/time_cover.py`: time coverage checks
 - `src/nc_check/accessor.py`: `xarray.Dataset.check` accessor API
 - `src/nc_check/cli.py`: CLI entrypoints (`nc-check`, `nc-comply`)
 - `src/nc_check/formatting.py`: table/html/python report formatting

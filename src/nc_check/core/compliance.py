@@ -10,7 +10,7 @@ from typing import Any, Literal, TypeAlias, cast
 import numpy as np
 import xarray as xr
 
-from .formatting import (
+from ..formatting import (
     ReportFormat,
     maybe_display_html_report,
     normalize_report_format,
@@ -18,14 +18,14 @@ from .formatting import (
     render_pretty_report_html,
     save_html_report,
 )
-from .heuristic import (
+from ..checks.heuristic import (
     AxisGuess,
     expected_coord_attrs,
     guess_axis_for_dim,
     heuristic_check_dataset,
     is_numeric_dtype,
 )
-from .standard_names import augment_issues_with_standard_name_suggestions
+from ..standard_names import augment_issues_with_standard_name_suggestions
 
 CF_VERSION = "CF-1.12"
 CF_STANDARD_NAME_TABLE_URL = "https://cfconventions.org/Data/cf-standard-names/current/src/cf-standard-name-table.xml"

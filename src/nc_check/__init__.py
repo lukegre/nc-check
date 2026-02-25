@@ -8,7 +8,8 @@ from .core import (
     check_dataset_compliant,
     make_dataset_compliant,
 )
-from .ocean import check_ocean_cover, check_time_cover
+from .checks.ocean import check_ocean_cover
+from .checks.time_cover import check_time_cover
 
 __all__ = [
     "CFCoercerAccessor",

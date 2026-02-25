@@ -24,10 +24,10 @@ from .formatting import (
     render_pretty_full_report_html,
     save_html_report,
 )
-from .ocean import (
+from .checks.ocean import (
     check_ocean_cover as run_ocean_cover_check,
-    check_time_cover as run_time_cover_check,
 )
+from .checks.time_cover import check_time_cover as run_time_cover_check
 
 _WRAPS_ASSIGNED = ("__module__", "__name__", "__qualname__", "__annotations__")
 CheckStatusKind: TypeAlias = Literal["pass", "fail", "warn", "skip"]
