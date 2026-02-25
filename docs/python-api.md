@@ -16,7 +16,7 @@ Run convention checks (`cf`, `ferret`, or both).
 Common options:
 
 - `conventions`: `"cf,ferret"` (default), `"cf"`, or `"ferret"`
-- `engine`: `"auto"` (default), `"cfchecker"`/`"cfcheck"`, `"heuristic"`
+- `engine`: `"auto"` (default), `"cfchecker"`, `"heuristic"`
 - `fallback_to_heuristic`: `True` by default
 - `domain`: optional standard-name suggestion domain (`ocean`, `atmosphere`, `land`, `cryosphere`, `biogeochemistry`)
 - `report_format`: `auto`, `python`, `tables`, `html`
@@ -85,13 +85,3 @@ Forwards method-specific options to each check family and produces:
 - `check_summary`
 - per-check reports
 - overall status fields (`overall_status`, `overall_ok`)
-
-## Aliases
-
-Backward-compatible aliases are available:
-
-- `ds.check.cf()` -> `compliance()`
-- `ds.check.comply()` and `ds.check.make_compliant()` -> `make_cf_compliant()`
-- `ds.check.check_ocean_cover()` -> `ocean_cover()`
-- `ds.check.check_time_cover()` -> `time_cover()`
-- `ds.check.full()` -> `all()`

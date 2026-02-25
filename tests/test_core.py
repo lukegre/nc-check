@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from nc_check import core
+from nc_check.core import compliance as core
 
 
 def test_make_compliant_creates_missing_axis_coordinates() -> None:
@@ -221,8 +221,8 @@ def test_normalize_requested_conventions_rejects_unknown() -> None:
         core._normalize_requested_conventions("cf,not-real")
 
 
-def test_normalize_requested_engine_accepts_alias() -> None:
-    assert core._normalize_requested_engine("cfcheck") == "cfchecker"
+def test_normalize_requested_engine_accepts_supported_values() -> None:
+    assert core._normalize_requested_engine("cfchecker") == "cfchecker"
     assert core._normalize_requested_engine("heuristic") == "heuristic"
 
 
@@ -360,32 +360,19 @@ def test_check_dataset_compliant_can_force_heuristic_engine(monkeypatch) -> None
     assert issues["counts"]["warn"] > 0 or issues["counts"]["error"] > 0
 
 
-def test_check_dataset_compliant_engine_alias_cfcheck_uses_cfchecker(
-    monkeypatch,
-) -> None:
-    seen: dict[str, object] = {}
-
-    def _fake_cfchecker(*args, **kwargs):
-        seen["called"] = True
-        return _empty_cfchecker_report()
-
-    monkeypatch.setattr(core, "_run_cfchecker_on_dataset", _fake_cfchecker)
-
+def test_check_dataset_compliant_rejects_removed_cfcheck_alias() -> None:
     ds = xr.Dataset(
         data_vars={"v": (("time",), [1.0])},
         coords={"time": [0]},
     )
 
-    issues = core.check_dataset_compliant(
-        ds,
-        engine="cfcheck",
-        standard_name_table_xml=None,
-        report_format="python",
-    )
-
-    assert seen["called"] is True
-    assert issues["engine"] == "cfchecker"
-    assert issues["engine_requested"] == "cfchecker"
+    with pytest.raises(ValueError, match="Unsupported engine"):
+        core.check_dataset_compliant(
+            ds,
+            engine="cfcheck",
+            standard_name_table_xml=None,
+            report_format="python",
+        )
 
 
 def test_heuristic_accepts_multi_token_conventions_with_cf_present() -> None:

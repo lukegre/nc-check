@@ -29,7 +29,7 @@ from ..standard_names import augment_issues_with_standard_name_suggestions
 
 CF_VERSION = "CF-1.12"
 CF_STANDARD_NAME_TABLE_URL = "https://cfconventions.org/Data/cf-standard-names/current/src/cf-standard-name-table.xml"
-ComplianceEngine = Literal["auto", "cfchecker", "cfcheck", "heuristic"]
+ComplianceEngine = Literal["auto", "cfchecker", "heuristic"]
 NormalizedComplianceEngine: TypeAlias = Literal["auto", "cfchecker", "heuristic"]
 ConventionName: TypeAlias = Literal["cf", "ferret"]
 StandardNameDomain: TypeAlias = Literal[
@@ -115,11 +115,9 @@ def _normalize_requested_engine(engine: str | None) -> NormalizedComplianceEngin
     if engine is None:
         return "auto"
     normalized = str(engine).strip().lower()
-    if normalized == "cfcheck":
-        return "cfchecker"
     if normalized not in {"auto", "cfchecker", "heuristic"}:
         raise ValueError(
-            "Unsupported engine. Expected one of: auto, cfchecker, cfcheck, heuristic."
+            "Unsupported engine. Expected one of: auto, cfchecker, heuristic."
         )
     return cast(NormalizedComplianceEngine, normalized)
 
@@ -812,7 +810,7 @@ def check_dataset_compliant(
         If ``True``, fall back to built-in heuristic checks when ``cfchecker``
         is unavailable or fails.
     engine
-        ``Literal["auto", "cfchecker", "cfcheck", "heuristic"]``.
+        ``Literal["auto", "cfchecker", "heuristic"]``.
     conventions
         Conventions to enforce: ``"cf"``, ``"ferret"``, or both.
     report_format

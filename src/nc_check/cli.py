@@ -7,8 +7,9 @@ from pathlib import Path
 import xarray as xr
 
 from . import accessor as _accessor  # noqa: F401  # register Dataset.check accessor
+from .checks.ocean import check_ocean_cover
+from .checks.time_cover import check_time_cover
 from .core import check_dataset_compliant, make_dataset_compliant
-from .ocean import check_ocean_cover, check_time_cover
 
 _CHECK_MODES = {"compliance", "ocean-cover", "time-cover", "all"}
 
@@ -82,7 +83,7 @@ def _build_check_parser() -> argparse.ArgumentParser:
     compliance.add_argument(
         "--engine",
         default="auto",
-        choices=("auto", "cfchecker", "cfcheck", "heuristic"),
+        choices=("auto", "cfchecker", "heuristic"),
         help="Compliance engine to use (default: auto).",
     )
 
@@ -131,7 +132,7 @@ def _build_check_parser() -> argparse.ArgumentParser:
     check_all.add_argument(
         "--engine",
         default="auto",
-        choices=("auto", "cfchecker", "cfcheck", "heuristic"),
+        choices=("auto", "cfchecker", "heuristic"),
         help="Compliance engine to use for the compliance step (default: auto).",
     )
     check_all.add_argument(

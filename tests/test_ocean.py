@@ -3,7 +3,7 @@ import pytest
 import xarray as xr
 
 import nc_check  # noqa: F401
-from nc_check.ocean import check_ocean_cover
+from nc_check.checks.ocean import check_ocean_cover
 
 
 def test_edge_of_map_detects_persistent_missing_longitudes() -> None:

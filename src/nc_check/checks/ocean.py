@@ -330,7 +330,6 @@ def _single_ocean_report(
     time_name: str | None,
     check_edge_of_map: bool,
     check_land_ocean_offset: bool,
-    check_time_missing: bool | None,
 ) -> dict[str, Any]:
     time_dim = resolve_time_dim(da, time_name)
     lon_convention = _longitude_convention(lon_values)
@@ -354,11 +353,6 @@ def _single_ocean_report(
             "land_ocean_offset": bool(check_land_ocean_offset),
         },
     }
-    if check_time_missing is not None:
-        report["note"] = (
-            "Time coverage has moved to `check_time_cover()` / `ds.check.time_cover()`."
-        )
-
     if check_edge_of_map:
         report["edge_of_map"] = _edge_of_map_check(
             da,
@@ -400,11 +394,7 @@ def _build_ocean_cover_report(
     time_name: str | None,
     check_edge_of_map: bool,
     check_land_ocean_offset: bool,
-    check_edge_sliver: bool | None,
-    check_time_missing: bool | None,
 ) -> dict[str, Any]:
-    if check_edge_sliver is not None:
-        check_edge_of_map = bool(check_edge_sliver)
     lon_name = lon_name or _guess_coord_name(ds, _LON_CANDIDATES, "degrees_east")
     lat_name = lat_name or _guess_coord_name(ds, _LAT_CANDIDATES, "degrees_north")
     if lon_name is None or lat_name is None:
@@ -431,7 +421,6 @@ def _build_ocean_cover_report(
             time_name=time_name,
             check_edge_of_map=check_edge_of_map,
             check_land_ocean_offset=check_land_ocean_offset,
-            check_time_missing=check_time_missing,
         )
 
     if len(reports) == 1:
@@ -460,8 +449,6 @@ class OceanCoverCheck(Check):
         time_name: str | None = "time",
         check_edge_of_map: bool = True,
         check_land_ocean_offset: bool = True,
-        check_edge_sliver: bool | None = None,
-        check_time_missing: bool | None = None,
     ) -> None:
         self.var_name = var_name
         self.lon_name = lon_name
@@ -469,8 +456,6 @@ class OceanCoverCheck(Check):
         self.time_name = time_name
         self.check_edge_of_map = check_edge_of_map
         self.check_land_ocean_offset = check_land_ocean_offset
-        self.check_edge_sliver = check_edge_sliver
-        self.check_time_missing = check_time_missing
 
     def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
         return _build_ocean_cover_report(
@@ -481,8 +466,6 @@ class OceanCoverCheck(Check):
             time_name=self.time_name,
             check_edge_of_map=self.check_edge_of_map,
             check_land_ocean_offset=self.check_land_ocean_offset,
-            check_edge_sliver=self.check_edge_sliver,
-            check_time_missing=self.check_time_missing,
         )
 
     def check(self, ds: xr.Dataset) -> CheckResult:
@@ -516,8 +499,6 @@ def check_ocean_cover(
     check_land_ocean_offset: bool = True,
     report_format: ReportFormat = "auto",
     report_html_file: str | Path | None = None,
-    check_edge_sliver: bool | None = None,
-    check_time_missing: bool | None = None,
 ) -> dict[str, Any] | str | None:
     """Run ocean-coverage sanity checks on one or more gridded variables."""
     resolved_format = normalize_report_format(report_format)
@@ -531,8 +512,6 @@ def check_ocean_cover(
         time_name=time_name,
         check_edge_of_map=check_edge_of_map,
         check_land_ocean_offset=check_land_ocean_offset,
-        check_edge_sliver=check_edge_sliver,
-        check_time_missing=check_time_missing,
     ).run_report(ds)
 
     if resolved_format == "tables":

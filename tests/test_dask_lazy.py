@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from nc_check import core
+from nc_check.core import compliance as core
 
 dask = pytest.importorskip("dask.array")
 netCDF4 = pytest.importorskip("netCDF4")

@@ -123,7 +123,7 @@ def _status_from_ocean_report(report: dict[str, Any]) -> SummaryStatus:
         )
 
     statuses: list[CheckStatusKind] = []
-    for check_name in ("edge_of_map", "land_ocean_offset", "time_missing"):
+    for check_name in ("edge_of_map", "land_ocean_offset"):
         check_report = report.get(check_name)
         if isinstance(check_report, dict):
             statuses.append(_status_kind(check_report.get("status")))
@@ -204,7 +204,6 @@ class CFCoercerAccessor:
     This accessor groups CF metadata checks and safe auto-fixes:
     - ``compliance()`` for CF/Ferret convention validation.
     - ``make_cf_compliant()`` for non-destructive metadata normalization.
-    - ``make_compliant()`` as a backward-compatible alias of ``make_cf_compliant()``.
     - ``ocean_cover()`` and ``time_cover()`` for coverage-oriented QA checks.
     - ``all()`` to run several checks and return one combined report.
     """
@@ -244,7 +243,7 @@ class CFCoercerAccessor:
         fallback_to_heuristic
             If ``True``, use built-in heuristic checks when ``cfchecker`` cannot run.
         engine
-            ``Literal["auto", "cfchecker", "cfcheck", "heuristic"]``.
+            ``Literal["auto", "cfchecker", "heuristic"]``.
         conventions
             Convention set to enforce (``"cf"``, ``"ferret"``, or both).
         report_format
@@ -273,37 +272,6 @@ class CFCoercerAccessor:
             report_html_file=report_html_file,
         )
 
-    @wraps(check_dataset_compliant, assigned=_WRAPS_ASSIGNED)
-    def cf(
-        self,
-        *,
-        cf_version: str = "1.12",
-        standard_name_table_xml: str | None = CF_STANDARD_NAME_TABLE_URL,
-        cf_area_types_xml: str | None = None,
-        cf_region_names_xml: str | None = None,
-        cache_tables: bool = False,
-        domain: StandardNameDomain | None = None,
-        fallback_to_heuristic: bool = True,
-        engine: ComplianceEngine = "auto",
-        conventions: str | list[str] | tuple[str, ...] | None = None,
-        report_format: ReportFormat = "auto",
-        report_html_file: str | Path | None = None,
-    ) -> dict[str, Any] | str | None:
-        """Backward-compatible alias for :meth:`compliance`."""
-        return self.compliance(
-            cf_version=cf_version,
-            standard_name_table_xml=standard_name_table_xml,
-            cf_area_types_xml=cf_area_types_xml,
-            cf_region_names_xml=cf_region_names_xml,
-            cache_tables=cache_tables,
-            domain=domain,
-            fallback_to_heuristic=fallback_to_heuristic,
-            engine=engine,
-            conventions=conventions,
-            report_format=report_format,
-            report_html_file=report_html_file,
-        )
-
     @wraps(make_dataset_compliant, assigned=_WRAPS_ASSIGNED)
     def make_cf_compliant(self) -> xr.Dataset:
         """Return a copied dataset with safe CF-1.12 metadata fixes applied.
@@ -311,20 +279,6 @@ class CFCoercerAccessor:
         This method is non-destructive: the original dataset is unchanged.
         """
         return make_dataset_compliant(self._ds)
-
-    @wraps(make_dataset_compliant, assigned=_WRAPS_ASSIGNED)
-    def comply(self) -> xr.Dataset:
-        """Alias for :meth:`make_cf_compliant`."""
-        return self.make_cf_compliant()
-
-    @wraps(make_dataset_compliant, assigned=_WRAPS_ASSIGNED)
-    def make_compliant(self) -> xr.Dataset:
-        """Return a copied dataset with safe CF metadata fixes applied.
-
-        This is a backward-compatible alias for :meth:`make_cf_compliant`.
-        The original dataset is not modified.
-        """
-        return self.make_cf_compliant()
 
     @wraps(run_ocean_cover_check, assigned=_WRAPS_ASSIGNED)
     def ocean_cover(
@@ -338,8 +292,6 @@ class CFCoercerAccessor:
         check_land_ocean_offset: bool = True,
         report_format: ReportFormat = "auto",
         report_html_file: str | Path | None = None,
-        check_edge_sliver: bool | None = None,
-        check_time_missing: bool | None = None,
     ) -> dict[str, Any] | str | None:
         """Run ocean-coverage sanity checks for gridded variables.
 
@@ -357,10 +309,6 @@ class CFCoercerAccessor:
             ``"python"``, ``"tables"``, ``"html"``, or ``"auto"``.
         report_html_file
             Output file path when ``report_format="html"``.
-        check_edge_sliver
-            Backward-compatible alias for ``check_edge_of_map``.
-        check_time_missing
-            Deprecated no-op retained for compatibility.
 
         Returns
         -------
@@ -378,37 +326,6 @@ class CFCoercerAccessor:
             check_land_ocean_offset=check_land_ocean_offset,
             report_format=report_format,
             report_html_file=report_html_file,
-            check_edge_sliver=check_edge_sliver,
-            check_time_missing=check_time_missing,
-        )
-
-    @wraps(run_ocean_cover_check, assigned=_WRAPS_ASSIGNED)
-    def check_ocean_cover(
-        self,
-        *,
-        var_name: str | None = None,
-        lon_name: str | None = None,
-        lat_name: str | None = None,
-        time_name: str | None = "time",
-        check_edge_of_map: bool = True,
-        check_land_ocean_offset: bool = True,
-        report_format: ReportFormat = "auto",
-        report_html_file: str | Path | None = None,
-        check_edge_sliver: bool | None = None,
-        check_time_missing: bool | None = None,
-    ) -> dict[str, Any] | str | None:
-        """Backward-compatible alias for :meth:`ocean_cover`."""
-        return self.ocean_cover(
-            var_name=var_name,
-            lon_name=lon_name,
-            lat_name=lat_name,
-            time_name=time_name,
-            check_edge_of_map=check_edge_of_map,
-            check_land_ocean_offset=check_land_ocean_offset,
-            report_format=report_format,
-            report_html_file=report_html_file,
-            check_edge_sliver=check_edge_sliver,
-            check_time_missing=check_time_missing,
         )
 
     @wraps(run_time_cover_check, assigned=_WRAPS_ASSIGNED)
@@ -441,23 +358,6 @@ class CFCoercerAccessor:
         """
         return run_time_cover_check(
             self._ds,
-            var_name=var_name,
-            time_name=time_name,
-            report_format=report_format,
-            report_html_file=report_html_file,
-        )
-
-    @wraps(run_time_cover_check, assigned=_WRAPS_ASSIGNED)
-    def check_time_cover(
-        self,
-        *,
-        var_name: str | None = None,
-        time_name: str | None = "time",
-        report_format: ReportFormat = "auto",
-        report_html_file: str | Path | None = None,
-    ) -> dict[str, Any] | str | None:
-        """Backward-compatible alias for :meth:`time_cover`."""
-        return self.time_cover(
             var_name=var_name,
             time_name=time_name,
             report_format=report_format,
@@ -617,51 +517,3 @@ class CFCoercerAccessor:
         save_html_report(html_report, report_html_file)
         maybe_display_html_report(html_report)
         return html_report
-
-    def full(
-        self,
-        *,
-        compliance: bool = True,
-        ocean_cover: bool = True,
-        time_cover: bool = True,
-        cf_version: str = "1.12",
-        standard_name_table_xml: str | None = CF_STANDARD_NAME_TABLE_URL,
-        cf_area_types_xml: str | None = None,
-        cf_region_names_xml: str | None = None,
-        cache_tables: bool = False,
-        domain: StandardNameDomain | None = None,
-        fallback_to_heuristic: bool = True,
-        engine: ComplianceEngine = "auto",
-        conventions: str | list[str] | tuple[str, ...] | None = None,
-        var_name: str | None = None,
-        lon_name: str | None = None,
-        lat_name: str | None = None,
-        time_name: str | None = "time",
-        check_edge_of_map: bool = True,
-        check_land_ocean_offset: bool = True,
-        report_format: ReportFormat = "auto",
-        report_html_file: str | Path | None = None,
-    ) -> dict[str, Any] | str | None:
-        """Backward-compatible alias for :meth:`all`."""
-        return self.all(
-            compliance=compliance,
-            ocean_cover=ocean_cover,
-            time_cover=time_cover,
-            cf_version=cf_version,
-            standard_name_table_xml=standard_name_table_xml,
-            cf_area_types_xml=cf_area_types_xml,
-            cf_region_names_xml=cf_region_names_xml,
-            cache_tables=cache_tables,
-            domain=domain,
-            fallback_to_heuristic=fallback_to_heuristic,
-            engine=engine,
-            conventions=conventions,
-            var_name=var_name,
-            lon_name=lon_name,
-            lat_name=lat_name,
-            time_name=time_name,
-            check_edge_of_map=check_edge_of_map,
-            check_land_ocean_offset=check_land_ocean_offset,
-            report_format=report_format,
-            report_html_file=report_html_file,
-        )

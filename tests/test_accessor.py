@@ -4,7 +4,7 @@ import xarray as xr
 from pathlib import Path
 
 import nc_check  # noqa: F401
-from nc_check import core
+from nc_check.core import compliance as core
 from nc_check.formatting import to_yaml_like
 
 
@@ -39,7 +39,7 @@ def test_comply_sets_expected_metadata_for_time_lat_lon() -> None:
         coords={"time": [0], "lat": [10.0], "lon": [20.0]},
     )
 
-    out = ds.check.comply()
+    out = ds.check.make_cf_compliant()
 
     assert out.attrs["Conventions"] == "CF-1.12"
     assert out["time"].attrs["standard_name"] == "time"
@@ -59,7 +59,7 @@ def test_time_only_dataset_supported() -> None:
         coords={"time": [0, 1, 2]},
     )
 
-    out = ds.check.comply()
+    out = ds.check.make_cf_compliant()
 
     assert out.attrs["Conventions"] == "CF-1.12"
     assert out["time"].attrs["standard_name"] == "time"
@@ -71,7 +71,7 @@ def test_lat_lon_only_dataset_supported() -> None:
         coords={"lat": [0.0, 1.0], "lon": [10.0, 11.0]},
     )
 
-    out = ds.check.comply()
+    out = ds.check.make_cf_compliant()
 
     assert out.attrs["Conventions"] == "CF-1.12"
     assert out["lat"].attrs["standard_name"] == "latitude"
@@ -89,7 +89,7 @@ def test_comply_clears_coordinate_encodings() -> None:
     ds["depth"].encoding = {"_FillValue": -9999.0}
     ds["depth"].attrs["_FillValue"] = -9999.0
 
-    out = ds.check.comply()
+    out = ds.check.make_cf_compliant()
 
     for coord_name in out.coords:
         assert out[coord_name].encoding.get("_FillValue") is None
@@ -100,7 +100,7 @@ def test_unknown_dims_are_reported_but_not_forced() -> None:
     ds = xr.Dataset(data_vars={"v": (("station",), [1, 2, 3])})
 
     issues = ds.check.compliance(report_format="python")
-    out = ds.check.comply()
+    out = ds.check.make_cf_compliant()
 
     if issues["engine_status"] == "unavailable":
         assert any("station" in note for note in issues["notes"])
@@ -310,13 +310,13 @@ def test_html_report_can_be_saved(tmp_path) -> None:
     assert report_file.read_text(encoding="utf-8") == html
 
 
-def test_cf_alias_accepts_html_report_format() -> None:
+def test_compliance_accepts_html_report_format() -> None:
     ds = xr.Dataset(
         data_vars={"temp": (("time",), [290.0, 291.0])},
         coords={"time": [0, 1]},
     )
 
-    html = ds.check.cf(
+    html = ds.check.compliance(
         conventions="ferret",
         standard_name_table_xml=None,
         report_format="html",
@@ -519,23 +519,3 @@ def test_python_api_all_accepts_custom_coordinate_names() -> None:
     assert ocean_report["grid"]["lat_name"] == "y"
     assert ocean_report["grid"]["time_dim"] == "t"
     assert time_report["time_dim"] == "t"
-
-
-def test_full_alias_still_works() -> None:
-    ds = xr.Dataset(
-        data_vars={"sst": (("time", "lat", "lon"), np.ones((2, 2, 3)))},
-        coords={"time": [0, 1], "lat": [-1.0, 1.0], "lon": [0.0, 120.0, 240.0]},
-    )
-
-    report = ds.check.full(
-        compliance=False,
-        ocean_cover=True,
-        time_cover=False,
-        check_edge_of_map=False,
-        check_land_ocean_offset=False,
-        report_format="python",
-    )
-
-    assert isinstance(report, dict)
-    assert report["summary"]["checks_run"] == 1
-    assert report["reports"].keys() == {"ocean_cover"}
