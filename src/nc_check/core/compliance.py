@@ -690,6 +690,32 @@ def _format_cf_version(version: str) -> str:
     return f"CF-{version}"
 
 
+def _normalize_global_conventions(attrs: dict[str, Any], *, cf_version: str) -> None:
+    """Canonicalize global Conventions metadata in-place."""
+    raw_value: Any = None
+    convention_keys = [key for key in list(attrs) if str(key).lower() == "conventions"]
+    for key in convention_keys:
+        if raw_value is None:
+            raw_value = attrs.get(key)
+        attrs.pop(key, None)
+
+    extras: list[str] = []
+    if raw_value is not None:
+        for part in str(raw_value).split(","):
+            token = part.strip()
+            if not token:
+                continue
+            if token.upper().startswith("CF-"):
+                continue
+            if token not in extras:
+                extras.append(token)
+
+    if extras:
+        attrs["Conventions"] = ", ".join([cf_version, *extras])
+    else:
+        attrs["Conventions"] = cf_version
+
+
 def _to_python_scalar(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
@@ -1084,7 +1110,7 @@ def make_dataset_compliant(ds: xr.Dataset) -> xr.Dataset:
     out = ds.copy(deep=True)
 
     out.attrs = deepcopy(out.attrs)
-    out.attrs["Conventions"] = CF_VERSION
+    _normalize_global_conventions(out.attrs, cf_version=CF_VERSION)
 
     for var_name in out.data_vars:
         out[var_name].attrs = _normalize_attr_key_case(

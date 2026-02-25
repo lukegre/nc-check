@@ -21,6 +21,31 @@ def test_make_compliant_creates_missing_axis_coordinates() -> None:
     assert out["lon"].encoding.get("_FillValue") is None
 
 
+def test_make_compliant_normalizes_global_conventions_key_and_value() -> None:
+    ds = xr.Dataset(
+        data_vars={"field": (("lat", "lon"), np.ones((1, 1)))},
+        coords={"lat": [10.0], "lon": [20.0]},
+        attrs={"conventions": "cf-1.6, ACDD-1.3"},
+    )
+
+    out = core.make_dataset_compliant(ds)
+
+    assert out.attrs["Conventions"] == "CF-1.12, ACDD-1.3"
+    assert "conventions" not in out.attrs
+
+
+def test_make_compliant_replaces_stale_cf_token_in_conventions() -> None:
+    ds = xr.Dataset(
+        data_vars={"field": (("lat", "lon"), np.ones((1, 1)))},
+        coords={"lat": [10.0], "lon": [20.0]},
+        attrs={"Conventions": "CF-1.6, ferret"},
+    )
+
+    out = core.make_dataset_compliant(ds)
+
+    assert out.attrs["Conventions"] == "CF-1.12, ferret"
+
+
 def test_make_compliant_casts_string_lat_lon_coords_to_float() -> None:
     ds = xr.Dataset(
         data_vars={"field": (("lat", "lon"), np.ones((2, 2)))},

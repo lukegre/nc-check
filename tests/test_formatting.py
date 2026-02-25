@@ -206,7 +206,8 @@ def test_print_pretty_report_summary_and_severity_priority(capsys) -> None:
     out = capsys.readouterr().out
 
     assert "Summary" in out
-    assert out.find("Errors + fatals") < out.find("CF version")
+    assert out.find("Fatals") < out.find("CF version")
+    assert out.find("Errors") < out.find("CF version")
     assert out.find("error-detail") < out.find("warn-detail")
 
 
@@ -271,4 +272,7 @@ def test_render_pretty_report_html_uses_flat_section_layout() -> None:
     assert "bootstrap@5" in html
     assert "summary-table" in html
     assert "kv-grid" not in html
+    assert "Fatals" in html
+    assert "Errors" in html
+    assert "Errors + fatals" not in html
     assert "PASSED" in html

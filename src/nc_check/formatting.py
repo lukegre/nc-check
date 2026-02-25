@@ -210,7 +210,8 @@ def _render_cf_report_with_rich(console: Any, report: dict[str, Any]) -> None:
     summary.add_column("k", style=_RICH_LABEL_STYLE, justify="left")
     summary.add_column("v", style=_RICH_TEXT_STYLE, justify="left")
     summary.add_row("Outcome", Text(outcome[0], style=outcome[1]))
-    summary.add_row("Errors + fatals", str(non_compliant))
+    summary.add_row("Fatals", str(fatal))
+    summary.add_row("Errors", str(error))
     summary.add_row("Warnings", str(warn))
     console.print(Panel(summary, title="Summary", border_style=_RICH_BORDER_STYLE))
 
@@ -1248,13 +1249,9 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
         len(variable_findings) if isinstance(variable_findings, dict) else 0
     )
 
-    fatal_raw = counts.get("fatal", 0)
-    error_raw = counts.get("error", 0)
-    warn_raw = counts.get("warn", 0)
-    fatal_count = fatal_raw if isinstance(fatal_raw, int) else 0
-    error_count = error_raw if isinstance(error_raw, int) else 0
-    warn_count = warn_raw if isinstance(warn_raw, int) else 0
-    problem_count = fatal_count + error_count
+    fatal_count = _count_to_int(counts.get("fatal", 0))
+    error_count = _count_to_int(counts.get("error", 0))
+    warn_count = _count_to_int(counts.get("warn", 0))
 
     meta = _html_summary_table(
         [
@@ -1279,7 +1276,8 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
     stats = _html_stat_strip(
         [
             ("Variables checked", variable_count, None),
-            ("Errors + fatals", problem_count, "fail" if problem_count > 0 else None),
+            ("Fatals", fatal_count, "fail" if fatal_count > 0 else None),
+            ("Errors", error_count, "fail" if error_count > 0 else None),
             ("Warnings", warn_count, "warn" if warn_count > 0 else None),
             (
                 "Engine status",
