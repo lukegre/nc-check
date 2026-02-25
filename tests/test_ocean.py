@@ -233,6 +233,76 @@ def test_ocean_cover_all_checks_can_be_disabled() -> None:
     assert report["ok"] is True
 
 
+def test_ocean_cover_longitude_convention_0_360_check() -> None:
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [0.0, 120.0, 240.0]},
+    )
+    pass_report = check_ocean_cover(
+        ds_pass,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_0_360=True,
+        report_format="python",
+    )
+    assert pass_report["longitude_convention_0_360"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [-20.0, 120.0, 240.0]},
+    )
+    fail_report = check_ocean_cover(
+        ds_fail,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_0_360=True,
+        report_format="python",
+    )
+    assert fail_report["longitude_convention_0_360"]["status"] == "fail"
+    assert fail_report["longitude_convention_0_360"]["invalid_longitude_count"] == 1
+    assert any(
+        item["id"] == "ocean.longitude_convention_0_360"
+        for item in fail_report["checks"]
+    )
+
+
+def test_ocean_cover_longitude_convention_neg180_180_check() -> None:
+    ds_pass = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [-120.0, 0.0, 120.0]},
+    )
+    pass_report = check_ocean_cover(
+        ds_pass,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_neg180_180=True,
+        report_format="python",
+    )
+    assert pass_report["longitude_convention_-180_180"]["status"] == "pass"
+
+    ds_fail = xr.Dataset(
+        data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},
+        coords={"lat": [-1.0, 1.0], "lon": [-120.0, 0.0, 240.0]},
+    )
+    fail_report = check_ocean_cover(
+        ds_fail,
+        var_name="sst",
+        check_edge_of_map=False,
+        check_land_ocean_offset=False,
+        check_lon_neg180_180=True,
+        report_format="python",
+    )
+    assert fail_report["longitude_convention_-180_180"]["status"] == "fail"
+    assert fail_report["longitude_convention_-180_180"]["invalid_longitude_count"] == 1
+    assert any(
+        item["id"] == "ocean.longitude_convention_-180_180"
+        for item in fail_report["checks"]
+    )
+
+
 def test_ocean_cover_html_report_has_collapsible_sections_and_modern_style() -> None:
     ds = xr.Dataset(
         data_vars={"sst": (("lat", "lon"), np.ones((2, 3)))},

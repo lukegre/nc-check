@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
@@ -151,6 +152,47 @@ def _is_global_grid(
     return lon_span >= 300.0 and lat_span >= 120.0
 
 
+@dataclass(frozen=True)
+class OceanCheckContext:
+    da: xr.DataArray
+    lon_dim: str
+    lat_dim: str
+    time_dim: str | None
+    lon_values: np.ndarray[Any, Any]
+    lat_values: np.ndarray[Any, Any]
+    lon_convention: LongitudeConvention
+
+
+def _resolve_ocean_check_context(
+    ds: xr.Dataset,
+    *,
+    var_name: str,
+    lon_name: str,
+    lat_name: str,
+    time_name: str | None,
+) -> OceanCheckContext:
+    if var_name not in ds.data_vars:
+        raise ValueError(f"Data variable '{var_name}' not found.")
+
+    da = ds[var_name]
+    lon_dim, lon_values = _resolve_1d_coord(ds, lon_name)
+    lat_dim, lat_values = _resolve_1d_coord(ds, lat_name)
+    if lon_dim not in da.dims or lat_dim not in da.dims:
+        raise ValueError(
+            f"Data variable '{var_name}' must include lon dim '{lon_dim}' and lat dim '{lat_dim}'."
+        )
+    time_dim = resolve_time_dim(da, time_name)
+    return OceanCheckContext(
+        da=da,
+        lon_dim=lon_dim,
+        lat_dim=lat_dim,
+        time_dim=time_dim,
+        lon_values=lon_values,
+        lat_values=lat_values,
+        lon_convention=_longitude_convention(lon_values),
+    )
+
+
 def _missing_lon_indices_for_time(
     da: xr.DataArray,
     *,
@@ -170,77 +212,6 @@ def _missing_lon_indices_for_time(
     return np.flatnonzero(np.asarray(mask.values, dtype=bool))
 
 
-def _edge_of_map_check(
-    da: xr.DataArray,
-    *,
-    lon_name: str,
-    lon_dim: str,
-    time_dim: str | None,
-) -> dict[str, Any]:
-    sampled_indices: list[int] = []
-    persistent_missing_lon_indices = np.array([], dtype=int)
-
-    if time_dim is None:
-        sampled_indices = [0]
-        persistent_missing_lon_indices = _missing_lon_indices_for_time(
-            da,
-            lon_dim=lon_dim,
-            time_dim=None,
-            time_index=None,
-        )
-    else:
-        time_size = int(da.sizes[time_dim])
-        last_idx = time_size - 1
-        first_idx = 0
-
-        sampled_indices.append(last_idx)
-        missing_last = _missing_lon_indices_for_time(
-            da,
-            lon_dim=lon_dim,
-            time_dim=time_dim,
-            time_index=last_idx,
-        )
-
-        if first_idx != last_idx:
-            sampled_indices.append(first_idx)
-        missing_first = _missing_lon_indices_for_time(
-            da,
-            lon_dim=lon_dim,
-            time_dim=time_dim,
-            time_index=first_idx,
-        )
-
-        if missing_last.size and np.array_equal(missing_last, missing_first):
-            persistent_missing_lon_indices = missing_last
-            if time_size > 2:
-                middle_idx = time_size // 2
-                if middle_idx not in sampled_indices:
-                    sampled_indices.append(middle_idx)
-                missing_middle = _missing_lon_indices_for_time(
-                    da,
-                    lon_dim=lon_dim,
-                    time_dim=time_dim,
-                    time_index=middle_idx,
-                )
-                if not np.array_equal(missing_middle, persistent_missing_lon_indices):
-                    persistent_missing_lon_indices = np.array([], dtype=int)
-
-    lon_values = np.asarray(da.coords[lon_name].values)
-    missing_lon_list = persistent_missing_lon_indices.tolist()
-    missing_lon_values = [float(lon_values[idx]) for idx in missing_lon_list]
-
-    return {
-        "enabled": True,
-        "status": "fail" if missing_lon_list else "pass",
-        "sampled_time_indices": sampled_indices,
-        "missing_longitude_count": len(missing_lon_list),
-        "missing_longitudes": missing_lon_values,
-        "missing_longitude_ranges": _value_ranges_from_indices(
-            missing_lon_list, lon_values
-        ),
-    }
-
-
 def _point_is_missing(point: xr.DataArray) -> bool:
     mask = missing_mask(point)
     reduce_dims = list(mask.dims)
@@ -249,135 +220,477 @@ def _point_is_missing(point: xr.DataArray) -> bool:
     return bool(np.asarray(mask.values).item())
 
 
-def _point_alignment_check(
-    da: xr.DataArray,
-    *,
-    lon_name: str,
-    lat_name: str,
-    lon_convention: str,
-    time_dim: str | None,
-    lon_values: np.ndarray[Any, Any],
-    lat_values: np.ndarray[Any, Any],
-) -> dict[str, Any]:
-    global_grid = _is_global_grid(lon_values, lat_values)
-    if not global_grid:
+class MissingLongitudeBandsCheck(Check):
+    id = "ocean.missing_longitude_bands"
+    description = "Check for persistent missing longitude bands."
+    tags = ("ocean", "coverage")
+
+    def __init__(
+        self,
+        *,
+        var_name: str,
+        lon_name: str,
+        lat_name: str,
+        time_name: str | None = "time",
+        enabled: bool = True,
+        context: OceanCheckContext | None = None,
+    ) -> None:
+        self.var_name = var_name
+        self.lon_name = lon_name
+        self.lat_name = lat_name
+        self.time_name = time_name
+        self.enabled = enabled
+        self._context = context
+
+    def _resolve_context(self, ds: xr.Dataset) -> OceanCheckContext:
+        if self._context is not None:
+            return self._context
+        return _resolve_ocean_check_context(
+            ds,
+            var_name=self.var_name,
+            lon_name=self.lon_name,
+            lat_name=self.lat_name,
+            time_name=self.time_name,
+        )
+
+    def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
+        if not self.enabled:
+            return {"enabled": False, "status": "skipped"}
+
+        context = self._resolve_context(ds)
+        sampled_indices: list[int] = []
+        persistent_missing_lon_indices = np.array([], dtype=int)
+
+        if context.time_dim is None:
+            sampled_indices = [0]
+            persistent_missing_lon_indices = _missing_lon_indices_for_time(
+                context.da,
+                lon_dim=context.lon_dim,
+                time_dim=None,
+                time_index=None,
+            )
+        else:
+            time_size = int(context.da.sizes[context.time_dim])
+            last_idx = time_size - 1
+            first_idx = 0
+
+            sampled_indices.append(last_idx)
+            missing_last = _missing_lon_indices_for_time(
+                context.da,
+                lon_dim=context.lon_dim,
+                time_dim=context.time_dim,
+                time_index=last_idx,
+            )
+
+            if first_idx != last_idx:
+                sampled_indices.append(first_idx)
+            missing_first = _missing_lon_indices_for_time(
+                context.da,
+                lon_dim=context.lon_dim,
+                time_dim=context.time_dim,
+                time_index=first_idx,
+            )
+
+            if missing_last.size and np.array_equal(missing_last, missing_first):
+                persistent_missing_lon_indices = missing_last
+                if time_size > 2:
+                    middle_idx = time_size // 2
+                    if middle_idx not in sampled_indices:
+                        sampled_indices.append(middle_idx)
+                    missing_middle = _missing_lon_indices_for_time(
+                        context.da,
+                        lon_dim=context.lon_dim,
+                        time_dim=context.time_dim,
+                        time_index=middle_idx,
+                    )
+                    if not np.array_equal(
+                        missing_middle, persistent_missing_lon_indices
+                    ):
+                        persistent_missing_lon_indices = np.array([], dtype=int)
+
+        missing_lon_list = persistent_missing_lon_indices.tolist()
+        missing_lon_values = [
+            float(context.lon_values[idx]) for idx in missing_lon_list
+        ]
         return {
             "enabled": True,
-            "status": "skipped_non_global",
-            "mismatch_count": 0,
-            "land_points_checked": 0,
-            "ocean_points_checked": 0,
-            "land_mismatches": [],
-            "ocean_mismatches": [],
-            "note": "Skipped land/ocean sanity check because grid does not appear global.",
+            "status": "fail" if missing_lon_list else "pass",
+            "sampled_time_indices": sampled_indices,
+            "missing_longitude_count": len(missing_lon_list),
+            "missing_longitudes": missing_lon_values,
+            "missing_longitude_ranges": _value_ranges_from_indices(
+                missing_lon_list, context.lon_values
+            ),
         }
 
-    section = da if time_dim is None else da.isel({time_dim: -1})
+    def check(self, ds: xr.Dataset) -> CheckResult:
+        report = self.run_report(ds)
+        status = status_from_leaf_statuses([str(report.get("status", ""))])
+        missing_count = int(report.get("missing_longitude_count", 0))
+        if str(report.get("status", "")).startswith("skip"):
+            message = "Missing longitude bands check skipped."
+        elif missing_count > 0:
+            message = f"Detected {missing_count} missing longitude bands."
+        else:
+            message = "No missing longitude bands detected."
+        return CheckResult(
+            check_id=self.id,
+            status=status,
+            info=CheckInfo(message=message, details={"report": report}),
+            fixable=False,
+            tags=list(self.tags),
+        )
 
-    def check_points(
-        points: tuple[tuple[str, float, float], ...],
+
+class LandOceanOffsetCheck(Check):
+    id = "ocean.land_ocean_offset"
+    description = "Check land/ocean alignment against reference points."
+    tags = ("ocean", "coverage")
+
+    def __init__(
+        self,
         *,
-        expected_missing: bool,
-    ) -> list[dict[str, Any]]:
-        mismatches: list[dict[str, Any]] = []
-        for label, lat, lon in points:
-            target_lon = _normalize_lon_for_grid(lon, lon_convention)
-            selected = section.sel(
-                {lat_name: lat, lon_name: target_lon},
-                method="nearest",
-            )
-            observed_missing = _point_is_missing(selected)
-            if observed_missing == expected_missing:
-                continue
-            actual_lat = float(np.asarray(selected.coords[lat_name].values).item())
-            actual_lon = float(np.asarray(selected.coords[lon_name].values).item())
-            mismatches.append(
-                {
-                    "point": label,
-                    "requested_lat": float(lat),
-                    "requested_lon": float(target_lon),
-                    "actual_lat": actual_lat,
-                    "actual_lon": actual_lon,
-                    "expected_missing": expected_missing,
-                    "observed_missing": observed_missing,
-                }
-            )
-        return mismatches
+        var_name: str,
+        lon_name: str,
+        lat_name: str,
+        time_name: str | None = "time",
+        enabled: bool = True,
+        context: OceanCheckContext | None = None,
+    ) -> None:
+        self.var_name = var_name
+        self.lon_name = lon_name
+        self.lat_name = lat_name
+        self.time_name = time_name
+        self.enabled = enabled
+        self._context = context
 
-    land_mismatches = check_points(_LAND_REFERENCE_POINTS, expected_missing=True)
-    ocean_mismatches = check_points(_OCEAN_REFERENCE_POINTS, expected_missing=False)
-    mismatch_count = len(land_mismatches) + len(ocean_mismatches)
+    def _resolve_context(self, ds: xr.Dataset) -> OceanCheckContext:
+        if self._context is not None:
+            return self._context
+        return _resolve_ocean_check_context(
+            ds,
+            var_name=self.var_name,
+            lon_name=self.lon_name,
+            lat_name=self.lat_name,
+            time_name=self.time_name,
+        )
 
-    return {
-        "enabled": True,
-        "status": "fail" if mismatch_count else "pass",
-        "mismatch_count": mismatch_count,
-        "land_points_checked": len(_LAND_REFERENCE_POINTS),
-        "ocean_points_checked": len(_OCEAN_REFERENCE_POINTS),
-        "land_mismatches": land_mismatches,
-        "ocean_mismatches": ocean_mismatches,
-    }
+    def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
+        if not self.enabled:
+            return {"enabled": False, "status": "skipped"}
+
+        context = self._resolve_context(ds)
+        global_grid = _is_global_grid(context.lon_values, context.lat_values)
+        if not global_grid:
+            return {
+                "enabled": True,
+                "status": "skipped_non_global",
+                "mismatch_count": 0,
+                "land_points_checked": 0,
+                "ocean_points_checked": 0,
+                "land_mismatches": [],
+                "ocean_mismatches": [],
+                "note": "Skipped land/ocean sanity check because grid does not appear global.",
+            }
+
+        section = (
+            context.da
+            if context.time_dim is None
+            else context.da.isel({context.time_dim: -1})
+        )
+
+        def check_points(
+            points: tuple[tuple[str, float, float], ...],
+            *,
+            expected_missing: bool,
+        ) -> list[dict[str, Any]]:
+            mismatches: list[dict[str, Any]] = []
+            for label, lat, lon in points:
+                target_lon = _normalize_lon_for_grid(lon, context.lon_convention)
+                selected = section.sel(
+                    {self.lat_name: lat, self.lon_name: target_lon},
+                    method="nearest",
+                )
+                observed_missing = _point_is_missing(selected)
+                if observed_missing == expected_missing:
+                    continue
+                actual_lat = float(
+                    np.asarray(selected.coords[self.lat_name].values).item()
+                )
+                actual_lon = float(
+                    np.asarray(selected.coords[self.lon_name].values).item()
+                )
+                mismatches.append(
+                    {
+                        "point": label,
+                        "requested_lat": float(lat),
+                        "requested_lon": float(target_lon),
+                        "actual_lat": actual_lat,
+                        "actual_lon": actual_lon,
+                        "expected_missing": expected_missing,
+                        "observed_missing": observed_missing,
+                    }
+                )
+            return mismatches
+
+        land_mismatches = check_points(_LAND_REFERENCE_POINTS, expected_missing=True)
+        ocean_mismatches = check_points(_OCEAN_REFERENCE_POINTS, expected_missing=False)
+        mismatch_count = len(land_mismatches) + len(ocean_mismatches)
+        return {
+            "enabled": True,
+            "status": "fail" if mismatch_count else "pass",
+            "mismatch_count": mismatch_count,
+            "land_points_checked": len(_LAND_REFERENCE_POINTS),
+            "ocean_points_checked": len(_OCEAN_REFERENCE_POINTS),
+            "land_mismatches": land_mismatches,
+            "ocean_mismatches": ocean_mismatches,
+        }
+
+    def check(self, ds: xr.Dataset) -> CheckResult:
+        report = self.run_report(ds)
+        status = status_from_leaf_statuses([str(report.get("status", ""))])
+        mismatch_count = int(report.get("mismatch_count", 0))
+        if str(report.get("status", "")).startswith("skip"):
+            message = "Land/ocean offset check skipped."
+        elif mismatch_count > 0:
+            message = f"Detected {mismatch_count} land/ocean mismatches."
+        else:
+            message = "No land/ocean offset mismatches detected."
+        return CheckResult(
+            check_id=self.id,
+            status=status,
+            info=CheckInfo(message=message, details={"report": report}),
+            fixable=False,
+            tags=list(self.tags),
+        )
+
+
+class LongitudeConvention0360Check(Check):
+    id = "ocean.longitude_convention_0_360"
+    description = "Check that longitude values follow the 0..360 convention."
+    tags = ("ocean", "coverage", "longitude")
+
+    def __init__(
+        self,
+        *,
+        var_name: str,
+        lon_name: str,
+        lat_name: str,
+        time_name: str | None = "time",
+        context: OceanCheckContext | None = None,
+    ) -> None:
+        self.var_name = var_name
+        self.lon_name = lon_name
+        self.lat_name = lat_name
+        self.time_name = time_name
+        self._context = context
+
+    def _resolve_context(self, ds: xr.Dataset) -> OceanCheckContext:
+        if self._context is not None:
+            return self._context
+        return _resolve_ocean_check_context(
+            ds,
+            var_name=self.var_name,
+            lon_name=self.lon_name,
+            lat_name=self.lat_name,
+            time_name=self.time_name,
+        )
+
+    def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
+        context = self._resolve_context(ds)
+        lon = np.asarray(context.lon_values, dtype=float)
+        invalid = ~np.isnan(lon) & ((lon < 0.0) | (lon > 360.0))
+        invalid_values = lon[invalid]
+        status = "fail" if invalid_values.size > 0 else "pass"
+        return {
+            "enabled": True,
+            "status": status,
+            "expected_convention": "0_360",
+            "longitude_min": float(np.nanmin(lon)),
+            "longitude_max": float(np.nanmax(lon)),
+            "invalid_longitude_count": int(invalid_values.size),
+            "invalid_longitudes_preview": [float(v) for v in invalid_values[:10]],
+        }
+
+    def check(self, ds: xr.Dataset) -> CheckResult:
+        report = self.run_report(ds)
+        status = status_from_leaf_statuses([str(report.get("status", ""))])
+        invalid_count = int(report.get("invalid_longitude_count", 0))
+        if invalid_count > 0:
+            message = (
+                f"Longitude values violate 0..360 convention ({invalid_count} invalid)."
+            )
+        else:
+            message = "Longitude values follow 0..360 convention."
+        return CheckResult(
+            check_id=self.id,
+            status=status,
+            info=CheckInfo(message=message, details={"report": report}),
+            fixable=False,
+            tags=list(self.tags),
+        )
+
+
+class LongitudeConventionNeg180180Check(Check):
+    id = "ocean.longitude_convention_-180_180"
+    description = "Check that longitude values follow the -180..180 convention."
+    tags = ("ocean", "coverage", "longitude")
+
+    def __init__(
+        self,
+        *,
+        var_name: str,
+        lon_name: str,
+        lat_name: str,
+        time_name: str | None = "time",
+        context: OceanCheckContext | None = None,
+    ) -> None:
+        self.var_name = var_name
+        self.lon_name = lon_name
+        self.lat_name = lat_name
+        self.time_name = time_name
+        self._context = context
+
+    def _resolve_context(self, ds: xr.Dataset) -> OceanCheckContext:
+        if self._context is not None:
+            return self._context
+        return _resolve_ocean_check_context(
+            ds,
+            var_name=self.var_name,
+            lon_name=self.lon_name,
+            lat_name=self.lat_name,
+            time_name=self.time_name,
+        )
+
+    def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
+        context = self._resolve_context(ds)
+        lon = np.asarray(context.lon_values, dtype=float)
+        invalid = ~np.isnan(lon) & ((lon < -180.0) | (lon > 180.0))
+        invalid_values = lon[invalid]
+        status = "fail" if invalid_values.size > 0 else "pass"
+        return {
+            "enabled": True,
+            "status": status,
+            "expected_convention": "-180_180",
+            "longitude_min": float(np.nanmin(lon)),
+            "longitude_max": float(np.nanmax(lon)),
+            "invalid_longitude_count": int(invalid_values.size),
+            "invalid_longitudes_preview": [float(v) for v in invalid_values[:10]],
+        }
+
+    def check(self, ds: xr.Dataset) -> CheckResult:
+        report = self.run_report(ds)
+        status = status_from_leaf_statuses([str(report.get("status", ""))])
+        invalid_count = int(report.get("invalid_longitude_count", 0))
+        if invalid_count > 0:
+            message = f"Longitude values violate -180..180 convention ({invalid_count} invalid)."
+        else:
+            message = "Longitude values follow -180..180 convention."
+        return CheckResult(
+            check_id=self.id,
+            status=status,
+            info=CheckInfo(message=message, details={"report": report}),
+            fixable=False,
+            tags=list(self.tags),
+        )
 
 
 def _single_ocean_report(
-    da: xr.DataArray,
+    ds: xr.Dataset,
     *,
+    var_name: str,
     lon_name: str,
     lat_name: str,
-    lon_dim: str,
-    lat_dim: str,
-    lon_values: np.ndarray[Any, Any],
-    lat_values: np.ndarray[Any, Any],
     time_name: str | None,
     check_edge_of_map: bool,
     check_land_ocean_offset: bool,
+    check_lon_0_360: bool,
+    check_lon_neg180_180: bool,
 ) -> dict[str, Any]:
-    time_dim = resolve_time_dim(da, time_name)
-    lon_convention = _longitude_convention(lon_values)
+    context = _resolve_ocean_check_context(
+        ds,
+        var_name=var_name,
+        lon_name=lon_name,
+        lat_name=lat_name,
+        time_name=time_name,
+    )
+    edge_check = MissingLongitudeBandsCheck(
+        var_name=var_name,
+        lon_name=lon_name,
+        lat_name=lat_name,
+        time_name=time_name,
+        enabled=check_edge_of_map,
+        context=context,
+    )
+    offset_check = LandOceanOffsetCheck(
+        var_name=var_name,
+        lon_name=lon_name,
+        lat_name=lat_name,
+        time_name=time_name,
+        enabled=check_land_ocean_offset,
+        context=context,
+    )
+    lon_0360_check = LongitudeConvention0360Check(
+        var_name=var_name,
+        lon_name=lon_name,
+        lat_name=lat_name,
+        time_name=time_name,
+        context=context,
+    )
+    lon_neg180_180_check = LongitudeConventionNeg180180Check(
+        var_name=var_name,
+        lon_name=lon_name,
+        lat_name=lat_name,
+        time_name=time_name,
+        context=context,
+    )
     edge_result: dict[str, Any] = {}
     offset_result: dict[str, Any] = {}
+    lon_0360_result: dict[str, Any] = {}
+    lon_neg180_180_result: dict[str, Any] = {}
 
-    def _run_edge() -> dict[str, Any]:
-        if not check_edge_of_map:
-            return {"enabled": False, "status": "skipped"}
-        return _edge_of_map_check(
-            da,
-            lon_name=lon_name,
-            lon_dim=lon_dim,
-            time_dim=time_dim,
+    suite_checks: list[SuiteCheck] = [
+        SuiteCheck(
+            check_id=edge_check.id,
+            name="Missing Longitude Bands",
+            run=lambda: edge_check.run_report(ds),
+            detail=lambda result: (
+                f"missing_longitudes={int(result.get('missing_longitude_count', 0))}"
+            ),
+        ),
+        SuiteCheck(
+            check_id=offset_check.id,
+            name="Land/Ocean Offset",
+            run=lambda: offset_check.run_report(ds),
+            detail=lambda result: f"mismatches={int(result.get('mismatch_count', 0))}",
+        ),
+    ]
+    if check_lon_0_360:
+        suite_checks.append(
+            SuiteCheck(
+                check_id=lon_0360_check.id,
+                name="Longitude Convention 0..360",
+                run=lambda: lon_0360_check.run_report(ds),
+                detail=lambda result: (
+                    f"invalid_longitudes={int(result.get('invalid_longitude_count', 0))}"
+                ),
+            )
         )
-
-    def _run_offset() -> dict[str, Any]:
-        if not check_land_ocean_offset:
-            return {"enabled": False, "status": "skipped"}
-        return _point_alignment_check(
-            da,
-            lon_name=lon_name,
-            lat_name=lat_name,
-            lon_convention=lon_convention,
-            time_dim=time_dim,
-            lon_values=lon_values,
-            lat_values=lat_values,
+    if check_lon_neg180_180:
+        suite_checks.append(
+            SuiteCheck(
+                check_id=lon_neg180_180_check.id,
+                name="Longitude Convention -180..180",
+                run=lambda: lon_neg180_180_check.run_report(ds),
+                detail=lambda result: (
+                    f"invalid_longitudes={int(result.get('invalid_longitude_count', 0))}"
+                ),
+            )
         )
 
     suite_report = Suite(
         name="ocean_cover",
-        checks=[
-            SuiteCheck(
-                check_id="ocean.missing_longitude_bands",
-                name="Missing Longitude Bands",
-                run=_run_edge,
-                detail=lambda result: (
-                    f"missing_longitudes={int(result.get('missing_longitude_count', 0))}"
-                ),
-            ),
-            SuiteCheck(
-                check_id="ocean.land_ocean_offset",
-                name="Land/Ocean Offset",
-                run=_run_offset,
-                detail=lambda result: f"mismatches={int(result.get('mismatch_count', 0))}",
-            ),
-        ],
+        checks=suite_checks,
     ).run()
 
     for item in suite_report["checks"]:
@@ -391,28 +704,36 @@ def _single_ocean_report(
             edge_result = result
         elif check_id == "ocean.land_ocean_offset":
             offset_result = result
+        elif check_id == "ocean.longitude_convention_0_360":
+            lon_0360_result = result
+        elif check_id == "ocean.longitude_convention_-180_180":
+            lon_neg180_180_result = result
 
     report: dict[str, Any] = {
-        "variable": str(da.name),
+        "variable": var_name,
         "grid": {
             "lon_name": lon_name,
             "lat_name": lat_name,
-            "lon_dim": lon_dim,
-            "lat_dim": lat_dim,
-            "time_dim": time_dim,
-            "longitude_convention": lon_convention,
-            "longitude_min": float(np.nanmin(lon_values)),
-            "longitude_max": float(np.nanmax(lon_values)),
-            "latitude_min": float(np.nanmin(lat_values)),
-            "latitude_max": float(np.nanmax(lat_values)),
+            "lon_dim": context.lon_dim,
+            "lat_dim": context.lat_dim,
+            "time_dim": context.time_dim,
+            "longitude_convention": context.lon_convention,
+            "longitude_min": float(np.nanmin(context.lon_values)),
+            "longitude_max": float(np.nanmax(context.lon_values)),
+            "latitude_min": float(np.nanmin(context.lat_values)),
+            "latitude_max": float(np.nanmax(context.lat_values)),
         },
         "checks_enabled": {
             "edge_of_map": bool(check_edge_of_map),
             "land_ocean_offset": bool(check_land_ocean_offset),
+            "lon_0_360": bool(check_lon_0_360),
+            "lon_neg180_180": bool(check_lon_neg180_180),
         },
         "edge_of_map": edge_result,
         "edge_sliver": edge_result,
         "land_ocean_offset": offset_result,
+        "longitude_convention_0_360": lon_0360_result,
+        "longitude_convention_-180_180": lon_neg180_180_result,
         "group": suite_report["group"],
         "suite": suite_report["suite"],
         "checks": suite_report["checks"],
@@ -431,6 +752,8 @@ def _build_ocean_cover_report(
     time_name: str | None,
     check_edge_of_map: bool,
     check_land_ocean_offset: bool,
+    check_lon_0_360: bool,
+    check_lon_neg180_180: bool,
 ) -> dict[str, Any]:
     lon_name = lon_name or _guess_coord_name(ds, _LON_CANDIDATES, "degrees_east")
     lat_name = lat_name or _guess_coord_name(ds, _LAT_CANDIDATES, "degrees_north")
@@ -447,17 +770,17 @@ def _build_ocean_cover_report(
 
     reports: dict[str, dict[str, Any]] = {}
     for da in data_vars:
+        variable_name = str(da.name)
         reports[str(da.name)] = _single_ocean_report(
-            da,
+            ds,
+            var_name=variable_name,
             lon_name=lon_name,
             lat_name=lat_name,
-            lon_dim=lon_dim,
-            lat_dim=lat_dim,
-            lon_values=lon_values,
-            lat_values=lat_values,
             time_name=time_name,
             check_edge_of_map=check_edge_of_map,
             check_land_ocean_offset=check_land_ocean_offset,
+            check_lon_0_360=check_lon_0_360,
+            check_lon_neg180_180=check_lon_neg180_180,
         )
 
     if len(reports) == 1:
@@ -503,6 +826,8 @@ class OceanCoverCheck(Check):
         time_name: str | None = "time",
         check_edge_of_map: bool = True,
         check_land_ocean_offset: bool = True,
+        check_lon_0_360: bool = False,
+        check_lon_neg180_180: bool = False,
     ) -> None:
         self.var_name = var_name
         self.lon_name = lon_name
@@ -510,6 +835,8 @@ class OceanCoverCheck(Check):
         self.time_name = time_name
         self.check_edge_of_map = check_edge_of_map
         self.check_land_ocean_offset = check_land_ocean_offset
+        self.check_lon_0_360 = check_lon_0_360
+        self.check_lon_neg180_180 = check_lon_neg180_180
 
     def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
         return _build_ocean_cover_report(
@@ -520,6 +847,8 @@ class OceanCoverCheck(Check):
             time_name=self.time_name,
             check_edge_of_map=self.check_edge_of_map,
             check_land_ocean_offset=self.check_land_ocean_offset,
+            check_lon_0_360=self.check_lon_0_360,
+            check_lon_neg180_180=self.check_lon_neg180_180,
         )
 
     def check(self, ds: xr.Dataset) -> CheckResult:
@@ -551,6 +880,8 @@ def check_ocean_cover(
     time_name: str | None = "time",
     check_edge_of_map: bool = True,
     check_land_ocean_offset: bool = True,
+    check_lon_0_360: bool = False,
+    check_lon_neg180_180: bool = False,
     report_format: ReportFormat = "auto",
     report_html_file: str | Path | None = None,
 ) -> dict[str, Any] | str | None:
@@ -566,6 +897,8 @@ def check_ocean_cover(
         time_name=time_name,
         check_edge_of_map=check_edge_of_map,
         check_land_ocean_offset=check_land_ocean_offset,
+        check_lon_0_360=check_lon_0_360,
+        check_lon_neg180_180=check_lon_neg180_180,
     ).run_report(ds)
 
     if resolved_format == "tables":

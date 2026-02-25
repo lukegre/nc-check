@@ -123,6 +123,8 @@ class CFCoercerAccessor:
         time_name: str | None = "time",
         check_edge_of_map: bool = True,
         check_land_ocean_offset: bool = True,
+        check_lon_0_360: bool = False,
+        check_lon_neg180_180: bool = False,
         report_format: ReportFormat = "auto",
         report_html_file: str | Path | None = None,
     ) -> dict[str, Any] | str | None:
@@ -138,6 +140,10 @@ class CFCoercerAccessor:
             Detect persistent missing longitude bands at map edges.
         check_land_ocean_offset
             Compare expected land/ocean reference points on global grids.
+        check_lon_0_360
+            Verify longitude values stay within ``[0, 360]``.
+        check_lon_neg180_180
+            Verify longitude values stay within ``[-180, 180]``.
         report_format
             ``"python"``, ``"tables"``, ``"html"``, or ``"auto"``.
         report_html_file
@@ -157,6 +163,8 @@ class CFCoercerAccessor:
             time_name=time_name,
             check_edge_of_map=check_edge_of_map,
             check_land_ocean_offset=check_land_ocean_offset,
+            check_lon_0_360=check_lon_0_360,
+            check_lon_neg180_180=check_lon_neg180_180,
             report_format=report_format,
             report_html_file=report_html_file,
         )
@@ -218,6 +226,8 @@ class CFCoercerAccessor:
         time_name: str | None = "time",
         check_edge_of_map: bool = True,
         check_land_ocean_offset: bool = True,
+        check_lon_0_360: bool = False,
+        check_lon_neg180_180: bool = False,
         report_format: ReportFormat = "auto",
         report_html_file: str | Path | None = None,
     ) -> dict[str, Any] | str | None:
@@ -235,6 +245,8 @@ class CFCoercerAccessor:
             Forwarded to coverage checks when enabled.
         check_edge_of_map, check_land_ocean_offset
             Forwarded to :meth:`ocean_cover` when enabled.
+        check_lon_0_360, check_lon_neg180_180
+            Optional longitude convention checks forwarded to :meth:`ocean_cover`.
         report_format
             ``"python"``, ``"tables"``, ``"html"``, or ``"auto"``.
         report_html_file
@@ -278,6 +290,8 @@ class CFCoercerAccessor:
                     "time_name": time_name,
                     "check_edge_of_map": check_edge_of_map,
                     "check_land_ocean_offset": check_land_ocean_offset,
+                    "check_lon_0_360": check_lon_0_360,
+                    "check_lon_neg180_180": check_lon_neg180_180,
                 },
                 "time_cover": {
                     "var_name": var_name,

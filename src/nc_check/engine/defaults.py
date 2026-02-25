@@ -232,6 +232,8 @@ def _run_ocean_cover_report(ds: xr.Dataset, options: dict[str, Any]) -> dict[str
         time_name=options.get("time_name", "time"),
         check_edge_of_map=bool(options.get("check_edge_of_map", True)),
         check_land_ocean_offset=bool(options.get("check_land_ocean_offset", True)),
+        check_lon_0_360=bool(options.get("check_lon_0_360", False)),
+        check_lon_neg180_180=bool(options.get("check_lon_neg180_180", False)),
         report_format="python",
     )
     return report if isinstance(report, dict) else {}
