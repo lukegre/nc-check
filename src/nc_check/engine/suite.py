@@ -71,6 +71,7 @@ class Suite:
     def report_from_items(name: str, checks: list[dict[str, Any]]) -> dict[str, Any]:
         summary = _summary_from_checks(checks)
         return {
+            "group": name,
             "suite": name,
             "checks": checks,
             "summary": summary,

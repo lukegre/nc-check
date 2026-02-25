@@ -79,6 +79,7 @@ def _single_time_cover_report(
         ],
     ).run()
     return {
+        "group": suite_report["group"],
         "suite": suite_report["suite"],
         "variable": str(da.name),
         "time_dim": time_dim,
@@ -117,6 +118,7 @@ def _build_time_cover_report(
 
     suite_report = Suite.report_from_items("time_cover", suite_checks)
     return {
+        "group": suite_report["group"],
         "suite": suite_report["suite"],
         "mode": "all_variables",
         "checked_variable_count": len(reports),

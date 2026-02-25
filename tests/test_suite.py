@@ -30,6 +30,7 @@ def test_suite_runs_list_of_atomic_checks() -> None:
 
     report = suite.run()
 
+    assert report["group"] == "example_suite"
     assert report["suite"] == "example_suite"
     assert report["summary"]["checks_run"] == 3
     assert report["summary"]["failing_checks"] == 1

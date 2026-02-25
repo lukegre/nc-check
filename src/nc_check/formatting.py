@@ -805,22 +805,58 @@ def print_pretty_full_report(report: Any) -> None:
             Panel(summary_table, title="Summary", border_style=_RICH_BORDER_STYLE)
         )
 
-        checks = report.get("check_summary")
-        if isinstance(checks, list) and checks:
-            checks_table = Table(
-                title="Check Summary",
+        groups = report.get("groups")
+        if isinstance(groups, dict) and groups:
+            groups_table = Table(
+                title="Group Summary",
                 title_style=_RICH_TITLE_STYLE,
                 header_style=_RICH_HEADER_STYLE,
                 border_style=_RICH_TABLE_BORDER_STYLE,
             )
+            groups_table.add_column("Group", style=_RICH_TEXT_STYLE, justify="left")
+            groups_table.add_column("Status", style=_RICH_TEXT_STYLE, justify="left")
+            groups_table.add_column("Checks", style=_RICH_TEXT_STYLE, justify="right")
+            groups_table.add_column("Failing", style=_RICH_TEXT_STYLE, justify="right")
+            groups_table.add_column(
+                "Warn/skip", style=_RICH_TEXT_STYLE, justify="right"
+            )
+            for group_name, item in groups.items():
+                if not isinstance(item, dict):
+                    continue
+                groups_table.add_row(
+                    _stringify(group_name),
+                    Text(
+                        _stringify(item.get("status")).upper(),
+                        style=_status_style(item.get("status")),
+                    ),
+                    _stringify(item.get("checks_run")),
+                    _stringify(item.get("failing_checks")),
+                    _stringify(item.get("warnings_or_skips")),
+                )
+            console.print(groups_table)
+
+        checks = report.get("checks")
+        if isinstance(checks, list) and checks:
+            checks_table = Table(
+                title="Atomic Check Summary",
+                title_style=_RICH_TITLE_STYLE,
+                header_style=_RICH_HEADER_STYLE,
+                border_style=_RICH_TABLE_BORDER_STYLE,
+            )
+            checks_table.add_column("Group", style=_RICH_TEXT_STYLE, justify="left")
             checks_table.add_column("Check", style=_RICH_TEXT_STYLE, justify="left")
             checks_table.add_column("Status", style=_RICH_TEXT_STYLE, justify="left")
             checks_table.add_column("Detail", style=_RICH_TEXT_STYLE, justify="left")
             for item in checks:
                 if not isinstance(item, dict):
                     continue
+                check_id = _stringify(item.get("id"))
+                variable = item.get("variable")
+                if variable is not None:
+                    check_id = f"{check_id} [{_stringify(variable)}]"
                 checks_table.add_row(
-                    _stringify(item.get("check")),
+                    _stringify(item.get("group")),
+                    check_id,
                     Text(
                         _stringify(item.get("status")).upper(),
                         style=_status_style(item.get("status")),
@@ -828,6 +864,36 @@ def print_pretty_full_report(report: Any) -> None:
                     _stringify(item.get("detail")),
                 )
             console.print(checks_table)
+        else:
+            check_summary = report.get("check_summary")
+            if not isinstance(check_summary, list) or not check_summary:
+                check_summary = []
+            if check_summary:
+                checks_table = Table(
+                    title="Check Summary",
+                    title_style=_RICH_TITLE_STYLE,
+                    header_style=_RICH_HEADER_STYLE,
+                    border_style=_RICH_TABLE_BORDER_STYLE,
+                )
+                checks_table.add_column("Check", style=_RICH_TEXT_STYLE, justify="left")
+                checks_table.add_column(
+                    "Status", style=_RICH_TEXT_STYLE, justify="left"
+                )
+                checks_table.add_column(
+                    "Detail", style=_RICH_TEXT_STYLE, justify="left"
+                )
+                for item in check_summary:
+                    if not isinstance(item, dict):
+                        continue
+                    checks_table.add_row(
+                        _stringify(item.get("check")),
+                        Text(
+                            _stringify(item.get("status")).upper(),
+                            style=_status_style(item.get("status")),
+                        ),
+                        _stringify(item.get("detail")),
+                    )
+                console.print(checks_table)
 
         reports = (
             report.get("reports") if isinstance(report.get("reports"), dict) else {}
@@ -1839,17 +1905,50 @@ def _multi_variable_time_cover_body(report: dict[str, Any]) -> str:
 
 def _full_report_sections(report: dict[str, Any]) -> str:
     summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
-    check_summary = report.get("check_summary")
     summary_rows: list[tuple[str, Any, str]] = []
-    if isinstance(check_summary, list):
-        for item in check_summary:
+    checks = report.get("checks")
+    if isinstance(checks, list):
+        for item in checks:
             if not isinstance(item, dict):
                 continue
+            check_id = _stringify(item.get("id"))
+            variable = item.get("variable")
+            if variable is not None:
+                check_id = f"{check_id} [{_stringify(variable)}]"
+            group = _stringify(item.get("group"))
+            label = f"{group}: {check_id}" if group else check_id
             summary_rows.append(
+                (label, item.get("status"), _stringify(item.get("detail")))
+            )
+    else:
+        check_summary = report.get("check_summary")
+        if isinstance(check_summary, list):
+            for item in check_summary:
+                if not isinstance(item, dict):
+                    continue
+                summary_rows.append(
+                    (
+                        _stringify(item.get("check")),
+                        item.get("status"),
+                        _stringify(item.get("detail")),
+                    )
+                )
+
+    group_rows: list[tuple[str, Any, str]] = []
+    groups = report.get("groups")
+    if isinstance(groups, dict):
+        for group_name, item in groups.items():
+            if not isinstance(item, dict):
+                continue
+            group_rows.append(
                 (
-                    _stringify(item.get("check")),
+                    _stringify(group_name),
                     item.get("status"),
-                    _stringify(item.get("detail")),
+                    (
+                        f"checks={_stringify(item.get('checks_run'))} "
+                        f"fail={_stringify(item.get('failing_checks'))} "
+                        f"warn_or_skip={_stringify(item.get('warnings_or_skips'))}"
+                    ),
                 )
             )
 
@@ -1885,16 +1984,24 @@ def _full_report_sections(report: dict[str, Any]) -> str:
     meta = _html_summary_table(
         [
             ("Overall OK", summary.get("overall_ok")),
-            ("Enabled checks", enabled_checks or "none"),
+            ("Enabled groups", enabled_checks or "none"),
         ]
     )
 
-    sections: list[str] = [
+    sections: list[str] = []
+    if group_rows:
+        sections.append(
+            _html_static_section(
+                "Group Summary",
+                _html_check_summary_table(group_rows),
+            )
+        )
+    sections.append(
         _html_static_section(
             "Combined Check Summary",
             _html_check_summary_table(summary_rows),
         )
-    ]
+    )
 
     reports = report.get("reports")
     if isinstance(reports, dict):

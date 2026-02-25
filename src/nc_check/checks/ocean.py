@@ -413,6 +413,7 @@ def _single_ocean_report(
         "edge_of_map": edge_result,
         "edge_sliver": edge_result,
         "land_ocean_offset": offset_result,
+        "group": suite_report["group"],
         "suite": suite_report["suite"],
         "checks": suite_report["checks"],
         "summary": suite_report["summary"],
@@ -476,6 +477,7 @@ def _build_ocean_cover_report(
 
     suite_report = Suite.report_from_items("ocean_cover", suite_checks)
     return {
+        "group": suite_report["group"],
         "suite": suite_report["suite"],
         "mode": "all_variables",
         "checked_variable_count": len(reports),

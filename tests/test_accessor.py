@@ -448,9 +448,12 @@ def test_all_python_report_can_run_subset_of_checks() -> None:
     )
 
     assert isinstance(report, dict)
-    assert report["summary"]["checks_run"] == 1
+    assert report["summary"]["checks_run"] == 2
     assert report["reports"].keys() == {"ocean_cover"}
-    assert report["check_summary"][0]["check"] == "ocean_cover"
+    assert report["checks"][0]["group"] == "ocean_cover"
+    assert report["checks"][0]["id"] == "ocean.missing_longitude_bands"
+    assert report["groups"]["ocean_cover"]["checks_run"] == 2
+    assert report["groups"]["ocean_cover"]["status"] == "pass"
 
 
 def test_all_rejects_all_checks_disabled() -> None:
