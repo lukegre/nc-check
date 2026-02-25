@@ -33,6 +33,10 @@ def test_edge_of_map_detects_persistent_missing_longitudes() -> None:
         {"start": "0.0", "end": "0.0"},
         {"start": "330.0", "end": "330.0"},
     ]
+    assert report["suite"] == "ocean_cover"
+    assert report["checks"][0]["id"] == "ocean.missing_longitude_bands"
+    assert report["checks"][0]["status"] == "fail"
+    assert report["summary"]["overall_status"] == "fail"
 
 
 def test_land_ocean_offset_check_detects_shifted_data() -> None:
@@ -96,6 +100,10 @@ def test_time_cover_reports_ranges() -> None:
         {"start_index": 1, "end_index": 2, "start": "1", "end": "2"}
     ]
     assert "time_format" not in report
+    assert report["suite"] == "time_cover"
+    assert report["checks"][0]["id"] == "time.missing_slices"
+    assert report["checks"][0]["status"] == "fail"
+    assert report["summary"]["overall_status"] == "fail"
 
 
 def test_time_cover_accepts_xarray_decoded_time_coordinates() -> None:
@@ -169,6 +177,9 @@ def test_ocean_cover_without_var_name_checks_all_eligible_variables() -> None:
     assert report["reports"]["sst"]["edge_of_map"]["status"] == "fail"
     assert report["reports"]["sss"]["edge_of_map"]["status"] == "pass"
     assert report["ok"] is False
+    assert report["suite"] == "ocean_cover"
+    assert report["summary"]["checks_run"] == 4
+    assert report["summary"]["failing_checks"] == 1
 
 
 def test_time_cover_without_var_name_checks_all_variables() -> None:
@@ -198,6 +209,9 @@ def test_time_cover_without_var_name_checks_all_variables() -> None:
     assert report["reports"]["sss"]["time_missing"]["status"] == "pass"
     assert report["reports"]["mask"]["time_missing"]["status"] == "skipped_no_time"
     assert report["ok"] is False
+    assert report["suite"] == "time_cover"
+    assert report["summary"]["checks_run"] == 3
+    assert report["summary"]["failing_checks"] == 1
 
 
 def test_ocean_cover_all_checks_can_be_disabled() -> None:

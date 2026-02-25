@@ -15,6 +15,7 @@ from ..core.coverage import (
     status_from_leaf_statuses,
     value_label,
 )
+from ..engine.suite import Suite, SuiteCheck
 from ..formatting import (
     ReportFormat,
     maybe_display_html_report,
@@ -333,6 +334,63 @@ def _single_ocean_report(
 ) -> dict[str, Any]:
     time_dim = resolve_time_dim(da, time_name)
     lon_convention = _longitude_convention(lon_values)
+    edge_result: dict[str, Any] = {}
+    offset_result: dict[str, Any] = {}
+
+    def _run_edge() -> dict[str, Any]:
+        if not check_edge_of_map:
+            return {"enabled": False, "status": "skipped"}
+        return _edge_of_map_check(
+            da,
+            lon_name=lon_name,
+            lon_dim=lon_dim,
+            time_dim=time_dim,
+        )
+
+    def _run_offset() -> dict[str, Any]:
+        if not check_land_ocean_offset:
+            return {"enabled": False, "status": "skipped"}
+        return _point_alignment_check(
+            da,
+            lon_name=lon_name,
+            lat_name=lat_name,
+            lon_convention=lon_convention,
+            time_dim=time_dim,
+            lon_values=lon_values,
+            lat_values=lat_values,
+        )
+
+    suite_report = Suite(
+        name="ocean_cover",
+        checks=[
+            SuiteCheck(
+                check_id="ocean.missing_longitude_bands",
+                name="Missing Longitude Bands",
+                run=_run_edge,
+                detail=lambda result: (
+                    f"missing_longitudes={int(result.get('missing_longitude_count', 0))}"
+                ),
+            ),
+            SuiteCheck(
+                check_id="ocean.land_ocean_offset",
+                name="Land/Ocean Offset",
+                run=_run_offset,
+                detail=lambda result: f"mismatches={int(result.get('mismatch_count', 0))}",
+            ),
+        ],
+    ).run()
+
+    for item in suite_report["checks"]:
+        if not isinstance(item, dict):
+            continue
+        check_id = str(item.get("id", ""))
+        result = item.get("result")
+        if not isinstance(result, dict):
+            continue
+        if check_id == "ocean.missing_longitude_bands":
+            edge_result = result
+        elif check_id == "ocean.land_ocean_offset":
+            offset_result = result
 
     report: dict[str, Any] = {
         "variable": str(da.name),
@@ -352,36 +410,14 @@ def _single_ocean_report(
             "edge_of_map": bool(check_edge_of_map),
             "land_ocean_offset": bool(check_land_ocean_offset),
         },
+        "edge_of_map": edge_result,
+        "edge_sliver": edge_result,
+        "land_ocean_offset": offset_result,
+        "suite": suite_report["suite"],
+        "checks": suite_report["checks"],
+        "summary": suite_report["summary"],
+        "ok": suite_report["ok"],
     }
-    if check_edge_of_map:
-        report["edge_of_map"] = _edge_of_map_check(
-            da,
-            lon_name=lon_name,
-            lon_dim=lon_dim,
-            time_dim=time_dim,
-        )
-    else:
-        report["edge_of_map"] = {"enabled": False, "status": "skipped"}
-    report["edge_sliver"] = report["edge_of_map"]
-
-    if check_land_ocean_offset:
-        report["land_ocean_offset"] = _point_alignment_check(
-            da,
-            lon_name=lon_name,
-            lat_name=lat_name,
-            lon_convention=lon_convention,
-            time_dim=time_dim,
-            lon_values=lon_values,
-            lat_values=lat_values,
-        )
-    else:
-        report["land_ocean_offset"] = {"enabled": False, "status": "skipped"}
-
-    statuses = [
-        str(report["edge_of_map"].get("status")),
-        str(report["land_ocean_offset"].get("status")),
-    ]
-    report["ok"] = not any(status in {"fail", "error"} for status in statuses)
     return report
 
 
@@ -426,12 +462,28 @@ def _build_ocean_cover_report(
     if len(reports) == 1:
         return next(iter(reports.values()))
 
+    suite_checks: list[dict[str, Any]] = []
+    for variable_name, per_var in reports.items():
+        raw_checks = per_var.get("checks")
+        if not isinstance(raw_checks, list):
+            continue
+        for item in raw_checks:
+            if not isinstance(item, dict):
+                continue
+            suite_item = dict(item)
+            suite_item["variable"] = variable_name
+            suite_checks.append(suite_item)
+
+    suite_report = Suite.report_from_items("ocean_cover", suite_checks)
     return {
+        "suite": suite_report["suite"],
         "mode": "all_variables",
         "checked_variable_count": len(reports),
         "checked_variables": list(reports.keys()),
         "reports": reports,
-        "ok": all(bool(per_var.get("ok")) for per_var in reports.values()),
+        "checks": suite_report["checks"],
+        "summary": suite_report["summary"],
+        "ok": suite_report["ok"],
     }
 
 

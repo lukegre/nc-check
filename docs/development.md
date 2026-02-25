@@ -43,6 +43,11 @@ mkdocs serve
 
 ## Project Layout
 
+- `src/nc_check/contracts/`: typed contracts for suite reports and summaries
+- `src/nc_check/engine/registry.py`: check registration model
+- `src/nc_check/engine/defaults.py`: default check registrations and summary/detail resolvers
+- `src/nc_check/engine/runner.py`: suite runner used by `ds.check.all()`
+- `src/nc_check/engine/suite.py`: generic `Suite` / `SuiteCheck` classes for atomic check lists
 - `src/nc_check/core/compliance.py`: compliance checks and compliance coercion
 - `src/nc_check/core/check.py`: pluggable check and fix abstractions
 - `src/nc_check/core/coverage.py`: shared coverage-check helpers

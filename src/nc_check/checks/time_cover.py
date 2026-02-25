@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import xarray as xr
+from pydantic import BaseModel, ConfigDict
 
 from ..core.check import Check, CheckInfo, CheckResult
 from ..core.coverage import (
@@ -14,6 +15,7 @@ from ..core.coverage import (
     range_records,
     status_from_leaf_statuses,
 )
+from ..engine.suite import Suite, SuiteCheck
 from ..formatting import (
     ReportFormat,
     maybe_display_html_report,
@@ -23,6 +25,13 @@ from ..formatting import (
     render_pretty_time_cover_reports_html,
     save_html_report,
 )
+
+
+class TimeCoverConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    var_name: str | None = None
+    time_name: str | None = "time"
 
 
 def _time_missing_check(da: xr.DataArray, *, time_dim: str | None) -> dict[str, Any]:
@@ -56,12 +65,27 @@ def _single_time_cover_report(
     time_dim: str | None,
 ) -> dict[str, Any]:
     time_missing = _time_missing_check(da, time_dim=time_dim)
-    statuses = [str(time_missing.get("status")).lower()]
+    suite_report = Suite(
+        name="time_cover",
+        checks=[
+            SuiteCheck(
+                check_id="time.missing_slices",
+                name="Missing Time Slices",
+                run=lambda: time_missing,
+                detail=lambda result: (
+                    f"missing_slices={int(result.get('missing_slice_count', 0))}"
+                ),
+            )
+        ],
+    ).run()
     return {
+        "suite": suite_report["suite"],
         "variable": str(da.name),
         "time_dim": time_dim,
         "time_missing": time_missing,
-        "ok": not any(status in {"fail", "error"} for status in statuses),
+        "checks": suite_report["checks"],
+        "summary": suite_report["summary"],
+        "ok": suite_report["ok"],
     }
 
 
@@ -79,13 +103,44 @@ def _build_time_cover_report(
     if len(reports) == 1:
         return next(iter(reports.values()))
 
+    suite_checks: list[dict[str, Any]] = []
+    for variable_name, per_var in reports.items():
+        raw_checks = per_var.get("checks")
+        if not isinstance(raw_checks, list):
+            continue
+        for item in raw_checks:
+            if not isinstance(item, dict):
+                continue
+            suite_item = dict(item)
+            suite_item["variable"] = variable_name
+            suite_checks.append(suite_item)
+
+    suite_report = Suite.report_from_items("time_cover", suite_checks)
     return {
+        "suite": suite_report["suite"],
         "mode": "all_variables",
         "checked_variable_count": len(reports),
         "checked_variables": list(reports.keys()),
         "reports": reports,
-        "ok": all(bool(per_var.get("ok")) for per_var in reports.values()),
+        "checks": suite_report["checks"],
+        "summary": suite_report["summary"],
+        "ok": suite_report["ok"],
     }
+
+
+def run_time_cover_report(
+    ds: xr.Dataset,
+    *,
+    config: TimeCoverConfig | None = None,
+    var_name: str | None = None,
+    time_name: str | None = "time",
+) -> dict[str, Any]:
+    resolved_config = config or TimeCoverConfig(var_name=var_name, time_name=time_name)
+    return _build_time_cover_report(
+        ds,
+        var_name=resolved_config.var_name,
+        time_name=resolved_config.time_name,
+    )
 
 
 class TimeCoverCheck(Check):
@@ -103,7 +158,7 @@ class TimeCoverCheck(Check):
         self.time_name = time_name
 
     def run_report(self, ds: xr.Dataset) -> dict[str, Any]:
-        return _build_time_cover_report(
+        return run_time_cover_report(
             ds,
             var_name=self.var_name,
             time_name=self.time_name,
@@ -142,10 +197,10 @@ def check_time_cover(
     if report_html_file is not None and resolved_format != "html":
         raise ValueError("`report_html_file` is only valid when report_format='html'.")
 
-    report = TimeCoverCheck(
-        var_name=var_name,
-        time_name=time_name,
-    ).run_report(ds)
+    report = run_time_cover_report(
+        ds,
+        config=TimeCoverConfig(var_name=var_name, time_name=time_name),
+    )
     if resolved_format == "tables":
         items = (
             list(report["reports"].values())
