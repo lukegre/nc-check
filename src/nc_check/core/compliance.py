@@ -66,6 +66,119 @@ _CF_ATTR_CASE_KEYS = (
 )
 
 
+class CfcheckerPreflightError(RuntimeError):
+    def __init__(self, report: dict[str, Any]) -> None:
+        super().__init__(
+            "cfchecker preflight failed due to unsupported attribute value types."
+        )
+        self.report = report
+
+
+def _cfchecker_safe_repr(value: Any, *, max_chars: int = 200) -> str:
+    text = repr(value)
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}..."
+
+
+def _is_cfchecker_attr_value_supported(value: Any) -> bool:
+    # cfchecker expects scalar-like metadata values; container values (notably list)
+    # can crash its attribute-type dispatcher.
+    unsupported_types = (list, tuple, dict, set, np.ndarray)
+    return not isinstance(value, unsupported_types)
+
+
+def _cfchecker_preflight_invalid_attr_report(
+    ds: xr.Dataset, *, cf_version: str
+) -> dict[str, Any] | None:
+    report = _empty_report(cf_version=cf_version)
+    report["engine"] = "cfchecker"
+    report["engine_status"] = "invalid_input"
+    report["check_method"] = "cfchecker_preflight"
+
+    has_invalid = False
+    for attr_name, attr_value in ds.attrs.items():
+        if _is_cfchecker_attr_value_supported(attr_value):
+            continue
+        has_invalid = True
+        report["global"].append(
+            {
+                "severity": "FATAL",
+                "convention": "cf",
+                "item": "cfchecker_attr_type_invalid",
+                "message": (
+                    f"Global attribute '{attr_name}' has unsupported type "
+                    f"'{type(attr_value).__name__}' for cfchecker."
+                ),
+                "current": {
+                    "attr_name": str(attr_name),
+                    "type": type(attr_value).__name__,
+                    "value": _cfchecker_safe_repr(attr_value),
+                },
+                "expected": "scalar/string attribute values only",
+            }
+        )
+
+    for coord_name, coord in ds.coords.items():
+        for attr_name, attr_value in coord.attrs.items():
+            if _is_cfchecker_attr_value_supported(attr_value):
+                continue
+            has_invalid = True
+            _append_coordinate_finding(
+                report,
+                str(coord_name),
+                {
+                    "severity": "FATAL",
+                    "convention": "cf",
+                    "item": "cfchecker_attr_type_invalid",
+                    "message": (
+                        f"Coordinate '{coord_name}' attribute '{attr_name}' has "
+                        f"unsupported type '{type(attr_value).__name__}' for cfchecker."
+                    ),
+                    "current": {
+                        "attr_name": str(attr_name),
+                        "type": type(attr_value).__name__,
+                        "value": _cfchecker_safe_repr(attr_value),
+                    },
+                    "expected": "scalar/string attribute values only",
+                },
+            )
+
+    for var_name, da in ds.data_vars.items():
+        for attr_name, attr_value in da.attrs.items():
+            if _is_cfchecker_attr_value_supported(attr_value):
+                continue
+            has_invalid = True
+            _append_variable_finding(
+                report,
+                str(var_name),
+                {
+                    "severity": "FATAL",
+                    "convention": "cf",
+                    "item": "cfchecker_attr_type_invalid",
+                    "message": (
+                        f"Variable '{var_name}' attribute '{attr_name}' has "
+                        f"unsupported type '{type(attr_value).__name__}' for cfchecker."
+                    ),
+                    "current": {
+                        "attr_name": str(attr_name),
+                        "type": type(attr_value).__name__,
+                        "value": _cfchecker_safe_repr(attr_value),
+                    },
+                    "expected": "scalar/string attribute values only",
+                },
+            )
+
+    if not has_invalid:
+        return None
+
+    report["notes"].append(
+        "Skipped cfchecker run because unsupported attribute value types were found."
+    )
+    _recompute_counts(report)
+    return report
+
+
 def _empty_report(cf_version: str = "1.12") -> dict[str, Any]:
     return {
         "cf_version": _format_cf_version(cf_version),
@@ -479,6 +592,34 @@ def _recompute_counts(issues: dict[str, Any]) -> None:
     issues["counts"] = counts
 
 
+def _merge_issue_findings(target: dict[str, Any], source: dict[str, Any]) -> None:
+    source_global = source.get("global")
+    if isinstance(source_global, list):
+        target_global = target.setdefault("global", [])
+        if isinstance(target_global, list):
+            for finding in source_global:
+                if isinstance(finding, dict):
+                    target_global.append(finding)
+
+    source_coordinates = source.get("coordinates")
+    if isinstance(source_coordinates, dict):
+        for coord_name, findings in source_coordinates.items():
+            if not isinstance(findings, list):
+                continue
+            for finding in findings:
+                if isinstance(finding, dict):
+                    _append_coordinate_finding(target, str(coord_name), finding)
+
+    source_variables = source.get("variables")
+    if isinstance(source_variables, dict):
+        for var_name, findings in source_variables.items():
+            if not isinstance(findings, list):
+                continue
+            for finding in findings:
+                if isinstance(finding, dict):
+                    _append_variable_finding(target, str(var_name), finding)
+
+
 def _as_netcdf_bytes(ds: xr.Dataset) -> bytes:
     # cfchecker is metadata-oriented; avoid materializing potentially large,
     # lazy-backed arrays by serializing a compact metadata-only shadow dataset.
@@ -725,6 +866,12 @@ def _run_cfchecker_on_dataset(
     cf_region_names_xml: str | None = None,
     cache_tables: bool = False,
 ) -> dict[str, Any]:
+    preflight_report = _cfchecker_preflight_invalid_attr_report(
+        ds, cf_version=cf_version
+    )
+    if preflight_report is not None:
+        raise CfcheckerPreflightError(preflight_report)
+
     # Import inside function so package can still be used for make_compliant
     # even if cfchecker/cfunits system dependencies are not installed.
     try:
@@ -878,13 +1025,20 @@ def check_dataset_compliant(
                     standard_name_table_xml,
                     domain=domain,
                 )
+                if isinstance(exc, CfcheckerPreflightError):
+                    _merge_issue_findings(issues, exc.report)
+                    issues["engine_status"] = "invalid_input"
+                    issues["notes"].append(
+                        "cfchecker input validation failed; returned heuristic checks with fatal preflight findings."
+                    )
+                else:
+                    issues["notes"].append(
+                        "cfchecker could not run; returned heuristic checks instead."
+                    )
                 issues["checker_error"] = {
                     "type": type(exc).__name__,
                     "message": str(exc),
                 }
-                issues["notes"].append(
-                    "cfchecker could not run; returned heuristic checks instead."
-                )
     else:
         issues = _empty_report(cf_version=cf_version)
         issues["notes"].append(

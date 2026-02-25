@@ -11,3 +11,5 @@ site/
 .venv
 .uv-cache
 .env
+
+*.nc
