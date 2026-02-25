@@ -15,7 +15,7 @@ uv sync --group dev --extra cf
 ## Run Tests
 
 ```bash
-uv run pytest
+uv run --group dev python -m pytest
 ```
 
 ## Build Docs Site
