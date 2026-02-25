@@ -63,7 +63,7 @@ def _build_check_parser() -> argparse.ArgumentParser:
             "--save-report",
             action="store_true",
             help=(
-                "Save an HTML report next to the input file. Compliance uses "
+                "Save an HTML report in the current working directory. Compliance uses "
                 "'<input>_report.html'; ocean-cover/time-cover use "
                 "'<input>_<command>_report.html'; all uses "
                 "'<input>_all_report.html' (single combined report)."
@@ -282,7 +282,7 @@ def _default_report_html_path(input_file: Path, mode: str = "compliance") -> Pat
     else:
         suffix = f"_{mode.replace('-', '_')}_report"
     report_name = f"{stem}{suffix}.html"
-    return input_file.with_name(report_name)
+    return Path.cwd() / report_name
 
 
 def _run_all_checks(

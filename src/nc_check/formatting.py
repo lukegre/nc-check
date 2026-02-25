@@ -717,6 +717,90 @@ def print_pretty_ocean_report(report: Any) -> None:
     print_pretty_ocean_reports([report])
 
 
+def _render_ocean_reports_top_summary_with_rich(
+    console: Any, reports: list[dict[str, Any]]
+) -> None:
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    summary_rows: list[tuple[str, Any, str]] = []
+    for report in reports:
+        edge = (
+            report.get("edge_of_map")
+            if isinstance(report.get("edge_of_map"), dict)
+            else {}
+        )
+        offset = (
+            report.get("land_ocean_offset")
+            if isinstance(report.get("land_ocean_offset"), dict)
+            else {}
+        )
+        time_missing = (
+            report.get("time_missing")
+            if isinstance(report.get("time_missing"), dict)
+            else {}
+        )
+        detail_parts = [
+            f"missing_longitudes={_stringify(edge.get('missing_longitude_count', 0))}",
+            f"mismatches={_stringify(offset.get('mismatch_count', 0))}",
+        ]
+        if time_missing:
+            detail_parts.append(
+                f"missing_slices={_stringify(time_missing.get('missing_slice_count', 0))}"
+            )
+        summary_rows.append(
+            (
+                _stringify(report.get("variable")),
+                report.get("ok"),
+                " ".join(detail_parts),
+            )
+        )
+
+    failing_checks = sum(
+        1 for _, status, _ in summary_rows if _status_kind(status) == "fail"
+    )
+    warning_checks = sum(
+        1 for _, status, _ in summary_rows if _status_kind(status) == "warn"
+    )
+    overall_ok = all(bool(report.get("ok")) for report in reports)
+
+    summary_head = Table(show_header=False, box=None, pad_edge=False)
+    summary_head.add_column("k", style=_RICH_LABEL_STYLE, justify="left")
+    summary_head.add_column("v", style=_RICH_TEXT_STYLE, justify="left")
+    summary_head.add_row("Variables checked", _stringify(len(reports)))
+    summary_head.add_row("Failing variables", _stringify(failing_checks))
+    summary_head.add_row("Warnings/skips", _stringify(warning_checks))
+    summary_head.add_row(
+        "Overall",
+        Text(
+            _status_display_text(overall_ok),
+            style=_status_style(_status_kind(overall_ok)),
+        ),
+    )
+    console.print(Panel(summary_head, title="Summary", border_style=_RICH_BORDER_STYLE))
+
+    summary = Table(
+        title="Top Summary",
+        title_style=_RICH_TITLE_STYLE,
+        header_style=_RICH_HEADER_STYLE,
+        border_style=_RICH_TABLE_BORDER_STYLE,
+    )
+    summary.add_column("Variable", style=_RICH_TEXT_STYLE, justify="left")
+    summary.add_column("Status", style=_RICH_TEXT_STYLE, justify="left")
+    summary.add_column("Detail", style=_RICH_TEXT_STYLE, justify="left")
+    for variable, status, detail in summary_rows:
+        summary.add_row(
+            _stringify(variable),
+            Text(
+                _status_display_text(status),
+                style=_status_style(_status_kind(status)),
+            ),
+            _stringify(detail),
+        )
+    console.print(summary)
+
+
 def print_pretty_ocean_reports(reports: list[dict[str, Any]]) -> None:
     """Print one or more ocean coverage reports under a shared top-level banner."""
     if not reports:
@@ -734,6 +818,8 @@ def print_pretty_ocean_reports(reports: list[dict[str, Any]]) -> None:
                 border_style=_RICH_BORDER_STYLE,
             )
         )
+        if len(reports) > 1:
+            _render_ocean_reports_top_summary_with_rich(console, reports)
         for index, report in enumerate(reports):
             if index > 0:
                 console.print()
@@ -750,6 +836,82 @@ def print_pretty_time_cover_report(report: Any) -> None:
         return
 
     print_pretty_time_cover_reports([report])
+
+
+def _render_time_cover_reports_top_summary_with_rich(
+    console: Any, reports: list[dict[str, Any]]
+) -> None:
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    summary_rows: list[tuple[str, Any, str]] = []
+    for report in reports:
+        time_missing = (
+            report.get("time_missing")
+            if isinstance(report.get("time_missing"), dict)
+            else {}
+        )
+        time_format = (
+            report.get("time_format")
+            if isinstance(report.get("time_format"), dict)
+            else {}
+        )
+        detail_parts = [
+            f"missing_slices={_stringify(time_missing.get('missing_slice_count', 0))}"
+        ]
+        if time_format:
+            detail_parts.append(f"time_format={_stringify(time_format.get('status'))}")
+        summary_rows.append(
+            (
+                _stringify(report.get("variable")),
+                report.get("ok"),
+                " ".join(detail_parts),
+            )
+        )
+
+    failing_checks = sum(
+        1 for _, status, _ in summary_rows if _status_kind(status) == "fail"
+    )
+    warning_checks = sum(
+        1 for _, status, _ in summary_rows if _status_kind(status) == "warn"
+    )
+    overall_ok = all(bool(report.get("ok")) for report in reports)
+
+    summary_head = Table(show_header=False, box=None, pad_edge=False)
+    summary_head.add_column("k", style=_RICH_LABEL_STYLE, justify="left")
+    summary_head.add_column("v", style=_RICH_TEXT_STYLE, justify="left")
+    summary_head.add_row("Variables checked", _stringify(len(reports)))
+    summary_head.add_row("Failing variables", _stringify(failing_checks))
+    summary_head.add_row("Warnings/skips", _stringify(warning_checks))
+    summary_head.add_row(
+        "Overall",
+        Text(
+            _status_display_text(overall_ok),
+            style=_status_style(_status_kind(overall_ok)),
+        ),
+    )
+    console.print(Panel(summary_head, title="Summary", border_style=_RICH_BORDER_STYLE))
+
+    summary = Table(
+        title="Top Summary",
+        title_style=_RICH_TITLE_STYLE,
+        header_style=_RICH_HEADER_STYLE,
+        border_style=_RICH_TABLE_BORDER_STYLE,
+    )
+    summary.add_column("Variable", style=_RICH_TEXT_STYLE, justify="left")
+    summary.add_column("Status", style=_RICH_TEXT_STYLE, justify="left")
+    summary.add_column("Detail", style=_RICH_TEXT_STYLE, justify="left")
+    for variable, status, detail in summary_rows:
+        summary.add_row(
+            _stringify(variable),
+            Text(
+                _status_display_text(status),
+                style=_status_style(_status_kind(status)),
+            ),
+            _stringify(detail),
+        )
+    console.print(summary)
 
 
 def print_pretty_time_cover_reports(reports: list[dict[str, Any]]) -> None:
@@ -769,6 +931,8 @@ def print_pretty_time_cover_reports(reports: list[dict[str, Any]]) -> None:
                 border_style=_RICH_BORDER_STYLE,
             )
         )
+        if len(reports) > 1:
+            _render_time_cover_reports_top_summary_with_rich(console, reports)
         for index, report in enumerate(reports):
             if index > 0:
                 console.print()
@@ -1027,6 +1191,17 @@ def _status_kind(status: Any) -> str:
     if normalized in {"skip", "skipped"} or normalized.startswith("skip"):
         return "skip"
     return "warn"
+
+
+def _status_display_text(status: Any) -> str:
+    kind = _status_kind(status)
+    if kind == "pass":
+        return "PASSED"
+    if kind == "fail":
+        return "FAILED"
+    if kind == "skip":
+        return "SKIPPED"
+    return "WARNING"
 
 
 def _combine_status_kinds(statuses: list[Any], fallback: Any) -> str:

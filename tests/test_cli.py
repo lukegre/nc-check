@@ -121,10 +121,13 @@ def test_run_check_forwards_custom_conventions(monkeypatch, tmp_path) -> None:
 def test_run_check_save_report_uses_html_and_default_output_path(
     monkeypatch, tmp_path
 ) -> None:
-    source = tmp_path / "sample.nc"
+    source_dir = tmp_path / "input-data"
+    source_dir.mkdir()
+    source = source_dir / "sample.nc"
     xr.Dataset(data_vars={"v": (("time",), [1.0])}, coords={"time": [0]}).to_netcdf(
         source
     )
+    monkeypatch.chdir(tmp_path)
 
     seen: dict[str, object] = {}
 
@@ -146,7 +149,7 @@ def test_run_check_save_report_uses_html_and_default_output_path(
 
     assert status == 0
     assert seen["report_format"] == "html"
-    assert seen["report_html_file"] == source.with_name("sample_report.html")
+    assert seen["report_html_file"] == tmp_path / "sample_report.html"
     assert seen["conventions"] == "cf,ferret"
     assert seen["engine"] == "auto"
 
@@ -402,11 +405,14 @@ def test_run_check_time_cover_mode_forwards_time_flags(monkeypatch, tmp_path) ->
 def test_run_check_all_mode_with_save_report_uses_single_combined_report(
     monkeypatch, tmp_path
 ) -> None:
-    source = tmp_path / "sample.nc"
+    source_dir = tmp_path / "input-data"
+    source_dir.mkdir()
+    source = source_dir / "sample.nc"
     xr.Dataset(
         data_vars={"v": (("time",), [1.0])},
         coords={"time": [0]},
     ).to_netcdf(source)
+    monkeypatch.chdir(tmp_path)
 
     seen: dict[str, object] = {}
 
@@ -452,7 +458,7 @@ def test_run_check_all_mode_with_save_report_uses_single_combined_report(
     assert seen["check_time_monotonic"] is False
     assert seen["check_time_regular_spacing"] is False
     assert seen["report_format"] == "html"
-    assert seen["report_html_file"] == source.with_name("sample_all_report.html")
+    assert seen["report_html_file"] == tmp_path / "sample_all_report.html"
 
 
 def test_run_check_all_mode_forwards_coordinate_names(monkeypatch, tmp_path) -> None:
