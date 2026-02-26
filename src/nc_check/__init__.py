@@ -1,23 +1,28 @@
-"""Utilities to coerce xarray datasets toward CF-1.12 compliance."""
+"""Plugin-based dataset check framework for canonical time/lat/lon xarray datasets."""
 
-from .accessor import CFCoercerAccessor
-from .core import (
-    CF_STANDARD_NAME_TABLE_URL,
-    CF_VERSION,
-    ComplianceEngine,
-    check_dataset_compliant,
-    make_dataset_compliant,
-)
-from .checks.ocean import check_ocean_cover
-from .checks.time_cover import check_time_cover
+from .api import canonicalize_dataset, create_registry, run_cf_compliance, run_suite
+from .dataset import CanonicalDataset
+from .models import AtomicCheckResult, CheckStatus, SuiteReport
+from .plugins import CFCompliancePlugin, CheckRegistry, cf_check_names
+from .reporting import render_html_report, report_to_dict, save_html_report
+from .suite import CheckDefinition, CheckSuite, run_atomic_check
 
 __all__ = [
-    "CFCoercerAccessor",
-    "CF_STANDARD_NAME_TABLE_URL",
-    "CF_VERSION",
-    "ComplianceEngine",
-    "check_dataset_compliant",
-    "check_ocean_cover",
-    "check_time_cover",
-    "make_dataset_compliant",
+    "AtomicCheckResult",
+    "CFCompliancePlugin",
+    "CanonicalDataset",
+    "CheckDefinition",
+    "CheckRegistry",
+    "CheckStatus",
+    "CheckSuite",
+    "SuiteReport",
+    "canonicalize_dataset",
+    "cf_check_names",
+    "create_registry",
+    "render_html_report",
+    "report_to_dict",
+    "run_atomic_check",
+    "run_cf_compliance",
+    "run_suite",
+    "save_html_report",
 ]

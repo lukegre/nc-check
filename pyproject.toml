@@ -1,7 +1,7 @@
 [project]
 name = "nc-check"
 version = "0.2.5"
-description = "Prepare xarray Datasets for CF-1.12 compliant NetCDF output"
+description = "Plugin-first atomic checks for canonical geospatial xarray datasets"
 readme = "README.md"
 authors = [
     { name = "lukegre", email = "lukegre@gmail.com" }
@@ -31,10 +31,6 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
 build-backend = "uv_build"
-
-[project.scripts]
-nc-check = "nc_check.cli:main_check"
-nc-comply = "nc_check.cli:main_comply"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
