@@ -7,6 +7,7 @@ from typing import Callable, Iterable, Literal
 import numpy as np
 import xarray as xr
 
+
 from .dataset import CanonicalDataset
 from .models import AtomicCheckResult, CheckStatus, SuiteReport, SuiteSummary
 
@@ -147,6 +148,18 @@ class CheckSuite:
             results=hierarchy,
             dataset_html=_dataset_repr_html(dataset),
         )
+
+    def make_web_report(
+        self, dataset: CanonicalDataset, html_report_fname: str
+    ) -> None:
+        from .reporting import save_html_report
+
+        report = self.run(dataset)
+
+        save_html_report(report, html_report_fname)
+
+    def __repr__(self) -> str:
+        return f"CheckSuite(name={self.name}, checks={len(self.checks)}, plugin={self.plugin})"
 
 
 def _empty_scope_targets(definition: CheckDefinition) -> AtomicCheckResult:

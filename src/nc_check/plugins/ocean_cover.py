@@ -2,69 +2,177 @@ import numpy as np
 import xarray as xr
 
 from ..models import AtomicCheckResult
+from ..suite import CheckSuite, CallableCheck
+
+_LON_SHIFT_CHECK_NAME = "Longitude shifted"
+_MISSING_LONS_CHECK_NAME = "Missing longitude ranges"
+
+_LAND_POINTS: dict[str, dict[str, float]] = {
+    "land_australia": {"lat": -25.0, "lon": 135.0},
+    "land_south_america": {"lat": -15.0, "lon": -60.0},
+    "land_north_america": {"lat": 40.0, "lon": -100.0},
+    "land_africa": {"lat": 0.0, "lon": 20.0},
+}
+
+_OCEAN_POINTS: dict[str, dict[str, float]] = {
+    "ocean_pacific": {"lat": -20.0, "lon": -160.0},
+    "ocean_atlantic": {"lat": -26.0, "lon": -37.0},
+    "ocean_indian": {"lat": -20.0, "lon": 80.0},
+}
 
 
 def check_180_lon_shift(data: xr.DataArray) -> AtomicCheckResult:
     """
-    Checks if the datail hasn't been shifted by 180 degrees in longitude
-    without the shifting of the coordinates.
+    Check whether data appears shifted by 180 degrees in longitude without
+    corresponding coordinate changes.
 
-    This test is performed by using selected points that are known land points
-    and other points that are known ocean points. We assume ocean data that
-    has nans over land. If the land points have nans and the ocean points
-    have values, then we assume the data is not shifted. If the land points have
-    values and the ocean points have nans, then we assume the data is shifted.
+    Uses known land/ocean sample points and expects ocean-like fields to be NaN
+    over land and non-NaN over ocean.
     """
-    LAND_POINTS = {
-        "land_australia": {"lat": -25.0, "lon": 135.0},
-        "land_south_america": {"lat": -15.0, "lon": -60.0},
-        "land_north_america": {"lat": 40.0, "lon": -100.0},
-        "land_africa": {"lat": 0.0, "lon": 20.0},
-    }
-    OCEAN_POINTS = {
-        "ocean_pacific": {"lat": -20, "lon": -160.0},
-        "ocean_atlantic": {"lat": -26, "lon": -37.0},
-        "ocean_indian": {"lat": -20, "lon": 80.0},
-    }
+    if "lat" not in data.coords or "lon" not in data.coords:
+        return AtomicCheckResult.skipped_result(
+            name=_LON_SHIFT_CHECK_NAME,
+            info="Skipped longitude-shift check; dataset must include lat/lon coordinates.",
+        )
 
-    n_timesteps = data.time.size
-    time_points = data.time.isel(time=slice(None, None, n_timesteps // 4))
-
-    def select_points(data, point: dict[str, float]):
-        point = point | {"time": time_points, "method": "nearest"}
-        return data.sel(**point)
-
-    def point_has_any_data(data: xr.DataArray):
-        return data.mean("time").compute().item()
-
-    land_values = {}
-    for continent, point in LAND_POINTS.items():
-        land_values[continent] = select_points(data, point).pipe(point_has_any_data)
-
-    ocean_values = {}
-    for ocean, point in OCEAN_POINTS.items():
-        ocean_values[ocean] = select_points(data, point).pipe(point_has_any_data)
+    sampled = _sample_time_slice(data, n_checking_timesteps=4)
+    land_values = _collect_point_values(sampled, _LAND_POINTS)
+    ocean_values = _collect_point_values(sampled, _OCEAN_POINTS)
+    display_values = _format_display_values(land_values | ocean_values)
 
     all_land_nan = all(np.isnan(val) for val in land_values.values())
     all_ocean_nan = all(np.isnan(val) for val in ocean_values.values())
 
-    # creating results
-    display_values = {k: f"{v:.3g}" for k, v in (land_values | ocean_values).items()}
     if all_land_nan and not all_ocean_nan:
         return AtomicCheckResult.passed_result(
-            name="demo.lon_shift_check",
+            name=_LON_SHIFT_CHECK_NAME,
             info="Data appears to be correctly aligned with coordinates.",
             details={**display_values},
         )
-    elif not all_land_nan and all_ocean_nan:
+
+    if not all_land_nan and all_ocean_nan:
         return AtomicCheckResult.failed_result(
-            name="demo.lon_shift_check",
+            name=_LON_SHIFT_CHECK_NAME,
             info="Data appears to be shifted by 180 degrees in longitude.",
             details={**display_values},
         )
-    else:
-        return AtomicCheckResult.failed_result(
-            name="demo.lon_shift_check",
-            info="Data has unexpected pattern of NaNs in land and ocean points.",
-            details={**display_values},
+
+    return AtomicCheckResult.failed_result(
+        name=_LON_SHIFT_CHECK_NAME,
+        info="Data has unexpected pattern of NaNs in land and ocean points.",
+        details={**display_values},
+    )
+
+
+def check_missing_lons(
+    data: xr.DataArray, n_checking_timesteps: int = 4
+) -> AtomicCheckResult:
+    info = {
+        "skipped": "Dataset is not global, or does not have 'lon'",
+        "passed": "No missing longitude values found in checked time steps",
+        "failed": "Found missing longitude values",
+    }
+
+    if not _has_global_lon_coverage(data):
+        return AtomicCheckResult.skipped_result(
+            name=_MISSING_LONS_CHECK_NAME,
+            info=info["skipped"],
         )
+
+    sampled = _sample_time_slice(data, n_checking_timesteps)
+    missing_mask = _compute_missing_lon_mask(sampled)
+    missing_ranges = _format_missing_lon_ranges(data.coords["lon"].values, missing_mask)
+
+    if not missing_ranges:
+        return AtomicCheckResult.passed_result(
+            name=_MISSING_LONS_CHECK_NAME,
+            info=info["passed"],
+        )
+
+    return AtomicCheckResult.failed_result(
+        name=_MISSING_LONS_CHECK_NAME,
+        info=info["failed"],
+        details={"missing_longitudes": missing_ranges},
+    )
+
+
+ocean_check_suite = CheckSuite(
+    name="Ocean Cover Checks",
+    checks=[
+        CallableCheck(
+            name=_LON_SHIFT_CHECK_NAME,
+            data_scope="data_vars",
+            plugin="ocean",
+            fn=check_180_lon_shift,
+        ),
+        CallableCheck(
+            name=_MISSING_LONS_CHECK_NAME,
+            data_scope="data_vars",
+            plugin="ocean",
+            fn=check_missing_lons,
+        ),
+    ],
+)
+
+
+def _mean_over_time_at_point(data: xr.DataArray, point: dict[str, float]) -> float:
+    selection = data.sel(lat=point["lat"], lon=point["lon"], method="nearest")
+    if "time" in selection.dims:
+        return float(selection.mean("time").compute().item())
+    return float(selection.compute().item())
+
+
+def _collect_point_values(
+    data: xr.DataArray, points: dict[str, dict[str, float]]
+) -> dict[str, float]:
+    return {
+        name: _mean_over_time_at_point(data, point) for name, point in points.items()
+    }
+
+
+def _format_display_values(values: dict[str, float]) -> dict[str, str]:
+    return {name: f"{value:.3g}" for name, value in values.items()}
+
+
+def _has_global_lon_coverage(data: xr.DataArray, min_span_deg: float = 350.0) -> bool:
+    if "lon" not in data.coords:
+        return False
+    lons = data.coords["lon"]
+    lon_span = float(lons.max() - lons.min())
+    return lon_span >= min_span_deg
+
+
+def _sample_time_slice(
+    data: xr.DataArray, n_checking_timesteps: int = 4
+) -> xr.DataArray:
+    if "time" not in data.coords:
+        return data
+    n_timesteps = data.coords["time"].size
+    step = max(1, n_timesteps // max(1, n_checking_timesteps))
+    sampled_times = data.coords["time"].isel(time=slice(None, None, step))
+    return data.sel(time=sampled_times)
+
+
+def _compute_missing_lon_mask(data: xr.DataArray) -> np.ndarray:
+    if "time" in data.dims:
+        return data.isnull().all("lat").any("time").values
+    return data.isnull().all("lat").values
+
+
+def _format_missing_lon_ranges(lons: np.ndarray, missing_mask: np.ndarray) -> str:
+    ranges: list[str] = []
+    start = None
+    lon_prev = None
+
+    for lon, is_missing in zip(lons.tolist(), missing_mask):
+        if is_missing and start is None:
+            start = lon
+        elif not is_missing and start is not None:
+            ranges.append(f"{start}:{lon_prev}")
+            start = None
+        lon_prev = lon
+
+    if start is not None:
+        ranges.append(f"{start}:{lon_prev}")
+
+    return ", ".join(ranges)

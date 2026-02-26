@@ -101,6 +101,11 @@ class SuiteReport:
     )
     dataset_html: str | None = None
 
+    def to_html(self) -> str:
+        from .reporting import render_html_report
+
+        return render_html_report(self)
+
     def to_dict(self) -> dict[str, Any]:
         structured = {
             data_scope: {
@@ -120,3 +125,6 @@ class SuiteReport:
             "dataset_html": self.dataset_html,
             "summary": self.summary.to_dict(),
         }
+
+    def __repr__(self) -> str:
+        return f"SuiteReport(suite_name={self.suite_name}, plugin={self.plugin}, checks={len(self.checks)}, summary={self.summary})"
