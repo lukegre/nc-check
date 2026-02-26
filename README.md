@@ -34,6 +34,10 @@ raw = xr.Dataset(
 report = nc_check.run_cf_compliance(raw)
 print(report.to_dict()["summary"])
 
+# Run the built-in time-cover plugin suite (missing slices by default).
+time_report = nc_check.run_time_cover(raw)
+print(time_report.to_dict()["summary"])
+
 # HTML is derived from the Python report.
 html = nc_check.render_html_report(report)
 nc_check.save_html_report(report, "cf-report.html")
@@ -84,14 +88,19 @@ report = nc_check.run_suite(
 
 ## Built-in example plugin
 
-`CFCompliancePlugin` is included as a reference implementation with atomic checks:
+Built-in plugins include:
 
-- `cf.conventions`
-- `cf.coordinates_present`
-- `cf.latitude_units`
-- `cf.longitude_units`
-- `cf.time_units`
-- `cf.coordinate_ranges`
+- `CFCompliancePlugin` with atomic checks:
+  - `cf.conventions`
+  - `cf.coordinates_present`
+  - `cf.latitude_units`
+  - `cf.longitude_units`
+  - `cf.time_units`
+  - `cf.coordinate_ranges`
+- `TimeCoverPlugin` with atomic checks:
+  - `time.missing_slices`
+  - `time.monotonic_increasing`
+  - `time.regular_spacing`
 
 ## Notes
 

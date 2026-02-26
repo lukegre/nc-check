@@ -90,6 +90,74 @@ def test_cf_compliance_plugin_detects_bad_metadata() -> None:
     assert "cf.coordinate_ranges" in failing_names
 
 
+def test_create_registry_registers_time_cover_checks() -> None:
+    registry = nc_check.create_registry(load_entrypoints=False)
+    registered_names = set(registry.list_checks())
+    assert set(nc_check.time_cover_check_names()).issubset(registered_names)
+
+
+def test_time_cover_plugin_reports_pass_for_valid_dataset() -> None:
+    report = nc_check.run_time_cover(_valid_dataset())
+    payload = report.to_dict()
+
+    assert payload["suite_name"] == "time_cover"
+    assert payload["summary"]["overall_status"] == "passed"
+    assert payload["summary"]["failed"] == 0
+    assert len(payload["checks"]) == 1
+    assert payload["checks"][0]["name"] == "time.missing_slices"
+    assert payload["checks"][0]["status"] == "passed"
+
+
+def test_time_cover_plugin_runs_optional_checks_and_detects_failures() -> None:
+    raw = xr.Dataset(
+        data_vars={"temp": (("time", "lat", "lon"), np.ones((3, 1, 1)))},
+        coords={
+            "time": np.array(
+                ["2024-01-01", "2024-01-03", "2024-01-02"], dtype="datetime64[ns]"
+            ),
+            "lat": ("lat", [0.0], {"units": "degrees_north"}),
+            "lon": ("lon", [0.0], {"units": "degrees_east"}),
+        },
+        attrs={"Conventions": "CF-1.12"},
+    )
+    raw["temp"][1, :, :] = np.nan
+
+    report = nc_check.run_time_cover(
+        raw,
+        check_time_monotonic=True,
+        check_time_regular_spacing=True,
+    )
+    payload = report.to_dict()
+
+    by_name = {item["name"]: item["status"] for item in payload["checks"]}
+    assert by_name["time.missing_slices"] == "failed"
+    assert by_name["time.monotonic_increasing"] == "failed"
+    assert by_name["time.regular_spacing"] == "failed"
+    assert payload["summary"]["overall_status"] == "failed"
+
+
+def test_time_cover_plugin_var_name_option_limits_scope() -> None:
+    raw = xr.Dataset(
+        data_vars={
+            "temp": (("time", "lat", "lon"), np.ones((2, 1, 1))),
+            "salt": (("time", "lat", "lon"), np.ones((2, 1, 1))),
+        },
+        coords={
+            "time": np.array(["2024-01-01", "2024-01-02"], dtype="datetime64[ns]"),
+            "lat": ("lat", [0.0], {"units": "degrees_north"}),
+            "lon": ("lon", [0.0], {"units": "degrees_east"}),
+        },
+        attrs={"Conventions": "CF-1.12"},
+    )
+    raw["temp"][1, :, :] = np.nan
+
+    all_report = nc_check.run_time_cover(raw).to_dict()
+    salt_report = nc_check.run_time_cover(raw, var_name="salt").to_dict()
+
+    assert all_report["summary"]["overall_status"] == "failed"
+    assert salt_report["summary"]["overall_status"] == "passed"
+
+
 def test_custom_plugin_can_register_and_run_checks() -> None:
     class NoNegativeLatPlugin:
         name = "custom_lat"

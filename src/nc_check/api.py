@@ -6,7 +6,13 @@ import xarray as xr
 
 from .dataset import CanonicalDataset
 from .models import SuiteReport
-from .plugins import CFCompliancePlugin, CheckRegistry, cf_check_names
+from .plugins import (
+    CFCompliancePlugin,
+    CheckRegistry,
+    TimeCoverPlugin,
+    cf_check_names,
+    time_cover_check_names,
+)
 
 
 def canonicalize_dataset(
@@ -25,6 +31,7 @@ def canonicalize_dataset(
 def create_registry(*, load_entrypoints: bool = True) -> CheckRegistry:
     registry = CheckRegistry()
     registry.register_plugin(CFCompliancePlugin())
+    registry.register_plugin(TimeCoverPlugin())
     if load_entrypoints:
         registry.register_entrypoint_plugins()
     return registry
@@ -73,6 +80,68 @@ def run_cf_compliance(
         suite_name="cf_compliance",
         registry=active_registry,
         plugin="cf_compliance",
+        rename_aliases=rename_aliases,
+        strict_dataset=strict_dataset,
+    )
+
+
+def _clone_registry_with_time_cover_options(
+    registry: CheckRegistry,
+    *,
+    var_name: str | None,
+    time_name: str | None,
+) -> CheckRegistry:
+    time_cover_checks = set(time_cover_check_names())
+    cloned = CheckRegistry()
+    for check_name in registry.list_checks():
+        if check_name in time_cover_checks:
+            continue
+        registered = registry.get_check(check_name)
+        cloned.register_check(
+            name=registered.name,
+            check=registered.check,
+            plugin=registered.plugin,
+        )
+    cloned.register_plugin(TimeCoverPlugin(var_name=var_name, time_name=time_name))
+    return cloned
+
+
+def run_time_cover(
+    ds: xr.Dataset | CanonicalDataset,
+    *,
+    var_name: str | None = None,
+    time_name: str | None = "time",
+    check_time_monotonic: bool = False,
+    check_time_regular_spacing: bool = False,
+    registry: CheckRegistry | None = None,
+    rename_aliases: bool = True,
+    strict_dataset: bool = False,
+) -> SuiteReport:
+    missing_check, monotonic_check, regular_spacing_check = time_cover_check_names()
+    selected_checks = [missing_check]
+    if check_time_monotonic:
+        selected_checks.append(monotonic_check)
+    if check_time_regular_spacing:
+        selected_checks.append(regular_spacing_check)
+
+    active_registry = registry or create_registry()
+    registered = set(active_registry.list_checks())
+    missing_time_checks = any(
+        check_name not in registered for check_name in time_cover_check_names()
+    )
+    if var_name is not None or time_name != "time" or missing_time_checks:
+        active_registry = _clone_registry_with_time_cover_options(
+            active_registry,
+            var_name=var_name,
+            time_name=time_name,
+        )
+
+    return run_suite(
+        ds,
+        check_names=selected_checks,
+        suite_name="time_cover",
+        registry=active_registry,
+        plugin="time_cover",
         rename_aliases=rename_aliases,
         strict_dataset=strict_dataset,
     )
