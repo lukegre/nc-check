@@ -6,6 +6,7 @@ from ..suite import CheckSuite, CallableCheck
 
 _LON_SHIFT_CHECK_NAME = "Longitude shifted"
 _MISSING_LONS_CHECK_NAME = "Missing longitude ranges"
+_OCEAN_PLUGIN_NAME = "ocean_cover"
 
 _LAND_POINTS: dict[str, dict[str, float]] = {
     "land_australia": {"lat": -25.0, "lon": 135.0},
@@ -96,22 +97,42 @@ def check_missing_lons(
     )
 
 
-ocean_check_suite = CheckSuite(
-    name="Ocean Cover Checks",
-    checks=[
+def _ocean_checks(*, plugin_name: str) -> list[CallableCheck]:
+    return [
         CallableCheck(
             name=_LON_SHIFT_CHECK_NAME,
             data_scope="data_vars",
-            plugin="ocean",
+            plugin=plugin_name,
             fn=check_180_lon_shift,
         ),
         CallableCheck(
             name=_MISSING_LONS_CHECK_NAME,
             data_scope="data_vars",
-            plugin="ocean",
+            plugin=plugin_name,
             fn=check_missing_lons,
         ),
-    ],
+    ]
+
+
+class OceanCoverPlugin:
+    name = _OCEAN_PLUGIN_NAME
+
+    def register(self, registry: object) -> None:
+        for check in _ocean_checks(plugin_name=self.name):
+            registry.register_check(check=check)
+
+
+def ocean_check_names() -> tuple[str, ...]:
+    return (
+        _LON_SHIFT_CHECK_NAME,
+        _MISSING_LONS_CHECK_NAME,
+    )
+
+
+ocean_check_suite = CheckSuite(
+    name="ocean_cover",
+    checks=_ocean_checks(plugin_name=_OCEAN_PLUGIN_NAME),
+    plugin=_OCEAN_PLUGIN_NAME,
 )
 
 

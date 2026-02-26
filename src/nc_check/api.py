@@ -9,8 +9,10 @@ from .models import SuiteReport
 from .plugins import (
     CFCompliancePlugin,
     CheckRegistry,
+    OceanCoverPlugin,
     TimeCoverPlugin,
     cf_check_names,
+    ocean_check_names,
     time_cover_check_names,
 )
 
@@ -31,6 +33,7 @@ def canonicalize_dataset(
 def create_registry(*, load_entrypoints: bool = True) -> CheckRegistry:
     registry = CheckRegistry()
     registry.register_plugin(CFCompliancePlugin())
+    registry.register_plugin(OceanCoverPlugin())
     registry.register_plugin(TimeCoverPlugin())
     if load_entrypoints:
         registry.register_entrypoint_plugins()
@@ -138,6 +141,25 @@ def run_time_cover(
         suite_name="time_cover",
         registry=active_registry,
         plugin="time_cover",
+        rename_aliases=rename_aliases,
+        strict_dataset=strict_dataset,
+    )
+
+
+def run_ocean_cover(
+    ds: xr.Dataset | CanonicalDataset,
+    *,
+    registry: CheckRegistry | None = None,
+    rename_aliases: bool = True,
+    strict_dataset: bool = True,
+) -> SuiteReport:
+    active_registry = registry or create_registry()
+    return run_suite(
+        ds,
+        check_names=ocean_check_names(),
+        suite_name="ocean_cover",
+        registry=active_registry,
+        plugin="ocean_cover",
         rename_aliases=rename_aliases,
         strict_dataset=strict_dataset,
     )

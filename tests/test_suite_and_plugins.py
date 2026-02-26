@@ -345,6 +345,12 @@ def test_create_registry_registers_time_cover_checks() -> None:
     assert set(nc_check.time_cover_check_names()).issubset(registered_names)
 
 
+def test_create_registry_registers_ocean_cover_checks() -> None:
+    registry = nc_check.create_registry(load_entrypoints=False)
+    registered_names = set(registry.list_checks())
+    assert set(nc_check.ocean_check_names()).issubset(registered_names)
+
+
 def test_time_cover_plugin_reports_pass_for_valid_dataset() -> None:
     report = nc_check.run_time_cover(_valid_dataset())
     payload = report.to_dict()
@@ -407,6 +413,18 @@ def test_time_cover_plugin_var_name_option_limits_scope() -> None:
 
     assert all_report["summary"]["overall_status"] == "failed"
     assert salt_report["summary"]["overall_status"] == "passed"
+
+
+def test_ocean_cover_plugin_runs_from_registry() -> None:
+    report = nc_check.run_ocean_cover(_valid_dataset())
+    payload = report.to_dict()
+
+    assert payload["suite_name"] == "ocean_cover"
+    assert payload["plugin"] == "ocean_cover"
+    assert len(payload["checks"]) == len(nc_check.ocean_check_names())
+
+    check_names = {item["name"].split("[", 1)[0] for item in payload["checks"]}
+    assert set(nc_check.ocean_check_names()) == check_names
 
 
 def test_custom_plugin_can_register_and_run_checks() -> None:

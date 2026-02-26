@@ -38,6 +38,10 @@ print(report.to_dict()["summary"])
 time_report = nc_check.run_time_cover(raw)
 print(time_report.to_dict()["summary"])
 
+# Run the built-in ocean-cover plugin suite.
+ocean_report = nc_check.run_ocean_cover(raw)
+print(ocean_report.to_dict()["summary"])
+
 # HTML is derived from the Python report.
 html = nc_check.render_html_report(report)
 nc_check.save_html_report(report, "cf-report.html")
@@ -49,17 +53,18 @@ A plugin registers named checks with a `CheckRegistry`.
 
 ```python
 from nc_check.models import AtomicCheckResult
+from nc_check.suite import CallableCheck
 
 class MyPlugin:
     name = "my_plugin"
 
     def register(self, registry):
-        def check_no_nan(ds):
-            has_nan = bool(ds.to_array().isnull().any())
+        def check_no_nan(data):
+            has_nan = bool(data.isnull().any())
             if has_nan:
                 return AtomicCheckResult.failed_result(
                     name="my.no_nan",
-                    info="Dataset contains NaN values.",
+                    info="Variable contains NaN values.",
                 )
             return AtomicCheckResult.passed_result(
                 name="my.no_nan",
@@ -67,9 +72,12 @@ class MyPlugin:
             )
 
         registry.register_check(
-            name="my.no_nan",
-            check=check_no_nan,
-            plugin=self.name,
+            check=CallableCheck(
+                name="my.no_nan",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=check_no_nan,
+            )
         )
 ```
 
@@ -101,6 +109,9 @@ Built-in plugins include:
   - `time.missing_slices`
   - `time.monotonic_increasing`
   - `time.regular_spacing`
+- `OceanCoverPlugin` with atomic checks:
+  - `Longitude shifted`
+  - `Missing longitude ranges`
 
 ## Notes
 
