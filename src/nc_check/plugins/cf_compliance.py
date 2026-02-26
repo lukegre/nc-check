@@ -4,9 +4,10 @@ import re
 from typing import Any
 
 import numpy as np
+import xarray as xr
 
-from ..dataset import CanonicalDataset
 from ..models import AtomicCheckResult
+from ..suite import CallableCheck
 
 _TIME_UNITS_RE = re.compile(
     r"^\s*(seconds?|minutes?|hours?|days?|months?|years?)\s+since\s+.+$",
@@ -14,8 +15,8 @@ _TIME_UNITS_RE = re.compile(
 )
 
 
-def _conventions_check(ds: CanonicalDataset) -> AtomicCheckResult:
-    conventions = str(ds.attrs.get("Conventions", "")).strip()
+def _conventions_check(data: xr.DataArray) -> AtomicCheckResult:
+    conventions = str(data.attrs.get("Conventions", "")).strip()
     if not conventions:
         return AtomicCheckResult.failed_result(
             name="cf.conventions",
@@ -37,8 +38,8 @@ def _conventions_check(ds: CanonicalDataset) -> AtomicCheckResult:
     )
 
 
-def _coordinate_presence_check(ds: CanonicalDataset) -> AtomicCheckResult:
-    missing = [name for name in ("time", "lat", "lon") if name not in ds.coords]
+def _coordinate_presence_check(data: xr.DataArray) -> AtomicCheckResult:
+    missing = [name for name in ("time", "lat", "lon") if name not in data.coords]
     if missing:
         return AtomicCheckResult.failed_result(
             name="cf.coordinates_present",
@@ -52,8 +53,16 @@ def _coordinate_presence_check(ds: CanonicalDataset) -> AtomicCheckResult:
     )
 
 
-def _latitude_units_check(ds: CanonicalDataset) -> AtomicCheckResult:
-    units = str(ds.coords["lat"].attrs.get("units", "")).strip().lower()
+def _latitude_units_check(data: xr.DataArray) -> AtomicCheckResult:
+    coord = data.coords.get("lat")
+    if coord is None:
+        return AtomicCheckResult.failed_result(
+            name="cf.latitude_units",
+            info="Latitude coordinate is missing.",
+            details={"expected": "degrees_north"},
+        )
+
+    units = str(coord.attrs.get("units", "")).strip().lower()
     if units == "degrees_north":
         return AtomicCheckResult.passed_result(
             name="cf.latitude_units",
@@ -74,8 +83,16 @@ def _latitude_units_check(ds: CanonicalDataset) -> AtomicCheckResult:
     )
 
 
-def _longitude_units_check(ds: CanonicalDataset) -> AtomicCheckResult:
-    units = str(ds.coords["lon"].attrs.get("units", "")).strip().lower()
+def _longitude_units_check(data: xr.DataArray) -> AtomicCheckResult:
+    coord = data.coords.get("lon")
+    if coord is None:
+        return AtomicCheckResult.failed_result(
+            name="cf.longitude_units",
+            info="Longitude coordinate is missing.",
+            details={"expected": "degrees_east"},
+        )
+
+    units = str(coord.attrs.get("units", "")).strip().lower()
     if units == "degrees_east":
         return AtomicCheckResult.passed_result(
             name="cf.longitude_units",
@@ -96,10 +113,15 @@ def _longitude_units_check(ds: CanonicalDataset) -> AtomicCheckResult:
     )
 
 
-def _time_units_check(ds: CanonicalDataset) -> AtomicCheckResult:
-    coord = ds.coords["time"]
-    values = np.asarray(coord.values)
+def _time_units_check(data: xr.DataArray) -> AtomicCheckResult:
+    coord = data.coords.get("time")
+    if coord is None:
+        return AtomicCheckResult.failed_result(
+            name="cf.time_units",
+            info="Time coordinate is missing.",
+        )
 
+    values = np.asarray(coord.values)
     if np.issubdtype(values.dtype, np.datetime64):
         return AtomicCheckResult.passed_result(
             name="cf.time_units",
@@ -127,9 +149,17 @@ def _time_units_check(ds: CanonicalDataset) -> AtomicCheckResult:
     )
 
 
-def _lat_lon_range_check(ds: CanonicalDataset) -> AtomicCheckResult:
-    lat_values = np.asarray(ds.coords["lat"].values, dtype=float)
-    lon_values = np.asarray(ds.coords["lon"].values, dtype=float)
+def _lat_lon_range_check(data: xr.DataArray) -> AtomicCheckResult:
+    lat = data.coords.get("lat")
+    lon = data.coords.get("lon")
+    if lat is None or lon is None:
+        return AtomicCheckResult.failed_result(
+            name="cf.coordinate_ranges",
+            info="Latitude or longitude coordinate is missing.",
+        )
+
+    lat_values = np.asarray(lat.values, dtype=float)
+    lon_values = np.asarray(lon.values, dtype=float)
 
     lat_min = float(np.nanmin(lat_values))
     lat_max = float(np.nanmax(lat_values))
@@ -172,26 +202,52 @@ class CFCompliancePlugin:
 
     def register(self, registry: Any) -> None:
         registry.register_check(
-            name="cf.conventions", check=_conventions_check, plugin=self.name
+            check=CallableCheck(
+                name="cf.conventions",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=_conventions_check,
+            )
         )
         registry.register_check(
-            name="cf.coordinates_present",
-            check=_coordinate_presence_check,
-            plugin=self.name,
+            check=CallableCheck(
+                name="cf.coordinates_present",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=_coordinate_presence_check,
+            )
         )
         registry.register_check(
-            name="cf.latitude_units", check=_latitude_units_check, plugin=self.name
+            check=CallableCheck(
+                name="cf.latitude_units",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=_latitude_units_check,
+            )
         )
         registry.register_check(
-            name="cf.longitude_units", check=_longitude_units_check, plugin=self.name
+            check=CallableCheck(
+                name="cf.longitude_units",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=_longitude_units_check,
+            )
         )
         registry.register_check(
-            name="cf.time_units",
-            check=_time_units_check,
-            plugin=self.name,
+            check=CallableCheck(
+                name="cf.time_units",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=_time_units_check,
+            )
         )
         registry.register_check(
-            name="cf.coordinate_ranges", check=_lat_lon_range_check, plugin=self.name
+            check=CallableCheck(
+                name="cf.coordinate_ranges",
+                data_scope="data_vars",
+                plugin=self.name,
+                fn=_lat_lon_range_check,
+            )
         )
 
 

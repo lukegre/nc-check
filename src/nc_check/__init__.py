@@ -17,12 +17,13 @@ from .plugins import (
     time_cover_check_names,
 )
 from .reporting import render_html_report, report_to_dict, save_html_report
-from .suite import CheckDefinition, CheckSuite, run_atomic_check
+from .suite import CallableCheck, CheckDefinition, CheckSuite, run_atomic_check
 
 __all__ = [
     "AtomicCheckResult",
     "CFCompliancePlugin",
     "CanonicalDataset",
+    "CallableCheck",
     "CheckDefinition",
     "CheckRegistry",
     "CheckStatus",

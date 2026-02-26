@@ -97,11 +97,7 @@ def _clone_registry_with_time_cover_options(
         if check_name in time_cover_checks:
             continue
         registered = registry.get_check(check_name)
-        cloned.register_check(
-            name=registered.name,
-            check=registered.check,
-            plugin=registered.plugin,
-        )
+        cloned.register_check(check=registered.check)
     cloned.register_plugin(TimeCoverPlugin(var_name=var_name, time_name=time_name))
     return cloned
 

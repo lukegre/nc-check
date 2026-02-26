@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Iterable
 
-from ..suite import AtomicCheck, CheckDefinition, CheckSuite
+from ..suite import CheckDefinition, CheckSuite
 
 _ENTRYPOINT_GROUP = "nc_check.plugins"
 
@@ -12,7 +12,7 @@ _ENTRYPOINT_GROUP = "nc_check.plugins"
 @dataclass(frozen=True)
 class RegisteredCheck:
     name: str
-    check: AtomicCheck
+    check: CheckDefinition
     plugin: str
 
 
@@ -20,10 +20,14 @@ class CheckRegistry:
     def __init__(self) -> None:
         self._checks: dict[str, RegisteredCheck] = {}
 
-    def register_check(self, *, name: str, check: AtomicCheck, plugin: str) -> None:
-        if name in self._checks:
-            raise ValueError(f"Check '{name}' is already registered.")
-        self._checks[name] = RegisteredCheck(name=name, check=check, plugin=plugin)
+    def register_check(self, *, check: CheckDefinition) -> None:
+        if check.name in self._checks:
+            raise ValueError(f"Check '{check.name}' is already registered.")
+        self._checks[check.name] = RegisteredCheck(
+            name=check.name,
+            check=check,
+            plugin=check.plugin,
+        )
 
     def register_plugin(self, plugin: object) -> None:
         name = getattr(plugin, "name", plugin.__class__.__name__)
@@ -62,8 +66,5 @@ class CheckRegistry:
         plugin: str | None = None,
     ) -> CheckSuite:
         registered = self.get_checks(check_names)
-        definitions = [
-            CheckDefinition(name=item.name, check=item.check, plugin=item.plugin)
-            for item in registered
-        ]
+        definitions = [item.check for item in registered]
         return CheckSuite(name=name, checks=definitions, plugin=plugin)

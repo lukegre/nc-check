@@ -96,11 +96,27 @@ class SuiteReport:
     plugin: str | None
     checks: list[AtomicCheckResult]
     summary: SuiteSummary
+    results: dict[str, dict[str, dict[str, AtomicCheckResult]]] = field(
+        default_factory=dict
+    )
+    dataset_html: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        structured = {
+            data_scope: {
+                variable: {
+                    check_name: check_result.to_dict()
+                    for check_name, check_result in checks_by_name.items()
+                }
+                for variable, checks_by_name in variables.items()
+            }
+            for data_scope, variables in self.results.items()
+        }
         return {
             "suite_name": self.suite_name,
             "plugin": self.plugin,
             "checks": [item.to_dict() for item in self.checks],
+            "results": structured,
+            "dataset_html": self.dataset_html,
             "summary": self.summary.to_dict(),
         }
