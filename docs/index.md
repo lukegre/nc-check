@@ -2,15 +2,56 @@
 
 `nc-check` helps you validate and prepare `xarray.Dataset` objects for CF-1.12-ready NetCDF output.
 
+[Get Started](getting-started.md){ .md-button .md-button--primary }
+[CLI Guide](cli.md){ .md-button }
+
 ## Start Here
 
-- [Getting Started](getting-started.md)
-- [CLI Guide](cli.md)
-- [Python API Guide](python-api.md)
-- [Checks and Reports](checks-and-reports.md)
-- [Add a Check Suite](add-check-suite.md)
-- [Troubleshooting](troubleshooting.md)
-- [Development](development.md)
+<div class="grid cards" markdown>
+
+- **Getting Started**
+
+  ---
+  Install package dependencies and run your first check in Python or the CLI.
+
+  [Open guide](getting-started.md)
+
+- **Checks and Reports**
+
+  ---
+  Learn what each check does and how to inspect HTML/table/python report outputs.
+
+  [Open guide](checks-and-reports.md)
+
+- **Python API**
+
+  ---
+  Use accessor methods such as `ds.check.compliance()` and `ds.check.all()`.
+
+  [Open guide](python-api.md)
+
+- **CLI Workflows**
+
+  ---
+  Run checks in batch jobs and save reports directly from command line tools.
+
+  [Open guide](cli.md)
+
+- **Build a Check Suite**
+
+  ---
+  Register plugins and compose new suites for custom geospatial quality checks.
+
+  [Open guide](add-check-suite.md)
+
+- **Troubleshooting + Dev**
+
+  ---
+  Resolve common issues and contribute to plugin/reporting internals.
+
+  [Troubleshooting](troubleshooting.md) | [Development](development.md)
+
+</div>
 
 ## Quick Commands
 
