@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 import nc_check
+import nc_check.plugins.cfchecker_report as cfchecker_report_plugin
 from nc_check.models import AtomicCheckResult, CheckStatus
 from nc_check.suite import CallableCheck
 
@@ -262,6 +263,38 @@ def test_check_suite_runs_in_data_scope_variable_check_order() -> None:
     ]
 
 
+def test_check_suite_can_scope_over_dataset() -> None:
+    ds = nc_check.canonicalize_dataset(_valid_dataset())
+
+    def dataset_check(data):
+        if not isinstance(data, xr.Dataset):
+            return AtomicCheckResult.failed_result(
+                name="demo.dataset",
+                info="Expected dataset scope input.",
+            )
+        return AtomicCheckResult.passed_result(
+            name="demo.dataset",
+            info="Dataset scope check passed.",
+        )
+
+    suite = nc_check.CheckSuite(
+        name="demo_dataset_scope",
+        checks=[
+            CallableCheck(
+                name="demo.dataset",
+                data_scope="dataset",
+                plugin="demo",
+                fn=dataset_check,
+            )
+        ],
+    )
+    report = suite.run(ds)
+
+    assert report.summary.checks_run == 1
+    assert report.summary.passed == 1
+    assert report.checks[0].name == "demo.dataset[dataset:dataset]"
+
+
 def test_suite_report_exposes_results_grouped_by_scope_and_variable() -> None:
     raw = xr.Dataset(
         data_vars={
@@ -343,6 +376,12 @@ def test_create_registry_registers_time_cover_checks() -> None:
     registry = nc_check.create_registry(load_entrypoints=False)
     registered_names = set(registry.list_checks())
     assert set(nc_check.time_cover_check_names()).issubset(registered_names)
+
+
+def test_create_registry_registers_cfchecker_report_check() -> None:
+    registry = nc_check.create_registry(load_entrypoints=False)
+    registered_names = set(registry.list_checks())
+    assert set(nc_check.cfchecker_report_check_names()).issubset(registered_names)
 
 
 def test_create_registry_registers_ocean_cover_checks() -> None:
@@ -427,6 +466,81 @@ def test_ocean_cover_plugin_runs_from_registry() -> None:
     assert set(nc_check.ocean_check_names()) == check_names
 
 
+def test_cfchecker_report_plugin_converts_package_output() -> None:
+    def fake_run_in_process(_path):
+        result = {
+            "raw_result": {
+                "global": {"ERROR": ["(2.6.1): invalid units"], "WARN": [], "INFO": []},
+                "variables": {
+                    "temp": {"ERROR": [], "WARN": ["(3): advisory"], "INFO": []}
+                },
+            },
+            "fatal_count": 0,
+            "error_count": 1,
+            "warning_count": 1,
+            "info_count": 0,
+        }
+        return result, "ERROR: (2.6.1): invalid units\nWARN: (3): advisory"
+
+    original_run_in_process = cfchecker_report_plugin._run_cfchecker_in_process
+    cfchecker_report_plugin._run_cfchecker_in_process = fake_run_in_process
+    try:
+        payload = nc_check.run_cfchecker_report(_valid_dataset()).to_dict()
+    finally:
+        cfchecker_report_plugin._run_cfchecker_in_process = original_run_in_process
+
+    assert payload["suite_name"] == "cfchecker_report"
+    assert payload["plugin"] == "cfchecker_report"
+    assert payload["summary"]["checks_run"] == 2
+    assert payload["summary"]["overall_status"] == "failed"
+    names = {item["name"] for item in payload["checks"]}
+    assert "cfchecker.error.2_6_1.1[dataset:dataset]" in names
+    assert "cfchecker.warning.3.1[data_vars:temp]" in names
+
+    by_name = {item["name"]: item for item in payload["checks"]}
+    assert by_name["cfchecker.error.2_6_1.1[dataset:dataset]"]["status"] == "failed"
+    assert by_name["cfchecker.warning.3.1[data_vars:temp]"]["status"] == "skipped"
+
+
+def test_cfchecker_report_plugin_splits_joined_warning_error_messages() -> None:
+    joined = (
+        "WARNING: (2.6.1): No 'Conventions' attribute present | "
+        "WARNING: (3.1): units attribute should be present | "
+        "ERROR: (3.1): Invalid units: Fractional year | "
+        "ERROR: (4.4): Invalid units and/or reference time"
+    )
+
+    def fake_run_in_process(_path):
+        result = {
+            "raw_result": {
+                "global": {"ERROR": [], "WARN": [joined], "INFO": []},
+                "variables": {},
+            },
+            "fatal_count": 0,
+            "error_count": 2,
+            "warning_count": 2,
+            "info_count": 0,
+        }
+        return result, joined
+
+    original_run_in_process = cfchecker_report_plugin._run_cfchecker_in_process
+    cfchecker_report_plugin._run_cfchecker_in_process = fake_run_in_process
+    try:
+        payload = nc_check.run_cfchecker_report(_valid_dataset()).to_dict()
+    finally:
+        cfchecker_report_plugin._run_cfchecker_in_process = original_run_in_process
+
+    assert payload["summary"]["checks_run"] == 4
+    assert payload["summary"]["failed"] == 2
+    assert payload["summary"]["skipped"] == 2
+
+    checks_by_info = {item["info"]: item for item in payload["checks"]}
+    assert checks_by_info["No 'Conventions' attribute present"]["status"] == "skipped"
+    assert checks_by_info["units attribute should be present"]["status"] == "skipped"
+    assert checks_by_info["Invalid units: Fractional year"]["status"] == "failed"
+    assert checks_by_info["Invalid units and/or reference time"]["status"] == "failed"
+
+
 def test_custom_plugin_can_register_and_run_checks() -> None:
     class NoNegativeLatPlugin:
         name = "custom_lat"
@@ -474,3 +588,41 @@ def test_report_rendering_is_python_first_then_html() -> None:
     assert payload["summary"]["overall_status"] == "passed"
     assert "<html>" in html
     assert "cf.conventions" in html
+
+
+def test_dataset_accessor_is_registered() -> None:
+    ds = _valid_dataset()
+    assert hasattr(ds, "check")
+    report = ds.check.compliance()
+    assert report.suite_name == "cf_compliance"
+
+
+def test_dataset_accessor_all_combines_selected_reports() -> None:
+    ds = _valid_dataset()
+    report = ds.check.all(compliance=True, ocean_cover=True, time_cover=True)
+    payload = report.to_dict()
+
+    assert payload["suite_name"] == "all_checks"
+    assert payload["summary"]["checks_run"] > 0
+    assert "data_vars" in payload["results"] or "dataset" in payload["results"]
+
+
+def test_dataset_accessor_cfchecker_report_matches_api() -> None:
+    ds = _valid_dataset()
+    direct = nc_check.run_cfchecker_report(ds).to_dict()
+    via_accessor = ds.check.cfchecker_report().to_dict()
+
+    assert direct["suite_name"] == via_accessor["suite_name"]
+    assert direct["summary"]["checks_run"] == via_accessor["summary"]["checks_run"]
+
+
+def test_dataset_accessor_writes_html_report_when_fname_provided(tmp_path) -> None:
+    ds = _valid_dataset()
+    output = tmp_path / "accessor-report.html"
+
+    report = ds.check.compliance(html_report_fname=output)
+
+    assert report.suite_name == "cf_compliance"
+    assert output.exists()
+    html = output.read_text(encoding="utf-8")
+    assert "<html>" in html

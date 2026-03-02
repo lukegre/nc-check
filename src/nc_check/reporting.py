@@ -68,6 +68,7 @@ def _parse_scoped_name(name: str) -> tuple[str, str, str] | None:
 
 def _scope_label(scope_name: str) -> str:
     labels = {
+        "dataset": "Dataset",
         "data_vars": "Data Variables",
         "coords": "Coordinates",
         "dims": "Dimensions",
@@ -238,7 +239,7 @@ def _render_scope_section(
 def _render_grouped_sections(
     grouped: dict[str, dict[str, dict[str, dict[str, Any]]]],
 ) -> str:
-    scope_order = {"data_vars": 0, "coords": 1, "dims": 2}
+    scope_order = {"dataset": 0, "data_vars": 1, "coords": 2, "dims": 3}
     scope_sections: list[str] = []
 
     for data_scope in sorted(grouped, key=lambda key: (scope_order.get(key, 99), key)):

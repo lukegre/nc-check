@@ -480,6 +480,7 @@ name = "nc-check"
 version = "0.2.5"
 source = { editable = "." }
 dependencies = [
+    { name = "cfchecker" },
     { name = "netcdf4" },
     { name = "numpy" },
     { name = "pydantic" },
@@ -502,6 +503,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cfchecker", specifier = ">=4.1.0" },
     { name = "cfchecker", marker = "extra == 'cf'" },
     { name = "cfunits", marker = "extra == 'cf'", specifier = ">=3.3.7" },
     { name = "netcdf4" },

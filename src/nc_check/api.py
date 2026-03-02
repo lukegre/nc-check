@@ -7,10 +7,12 @@ import xarray as xr
 from .dataset import CanonicalDataset
 from .models import SuiteReport
 from .plugins import (
+    CFCheckerReportPlugin,
     CFCompliancePlugin,
     CheckRegistry,
     OceanCoverPlugin,
     TimeCoverPlugin,
+    build_cfchecker_suite_report,
     cf_check_names,
     ocean_check_names,
     time_cover_check_names,
@@ -32,6 +34,7 @@ def canonicalize_dataset(
 
 def create_registry(*, load_entrypoints: bool = True) -> CheckRegistry:
     registry = CheckRegistry()
+    registry.register_plugin(CFCheckerReportPlugin())
     registry.register_plugin(CFCompliancePlugin())
     registry.register_plugin(OceanCoverPlugin())
     registry.register_plugin(TimeCoverPlugin())
@@ -86,6 +89,16 @@ def run_cf_compliance(
         rename_aliases=rename_aliases,
         strict_dataset=strict_dataset,
     )
+
+
+def run_cfchecker_report(
+    ds: xr.Dataset | CanonicalDataset,
+    *,
+    registry: CheckRegistry | None = None,
+) -> SuiteReport:
+    _ = registry
+    dataset = ds if isinstance(ds, xr.Dataset) else xr.Dataset(ds)
+    return build_cfchecker_suite_report(dataset)
 
 
 def _clone_registry_with_time_cover_options(

@@ -11,8 +11,8 @@ import xarray as xr
 from .dataset import CanonicalDataset
 from .models import AtomicCheckResult, CheckStatus, SuiteReport, SuiteSummary
 
-DataScope = Literal["data_vars", "dims", "coords"]
-AtomicCheckFn = Callable[[xr.DataArray], AtomicCheckResult]
+DataScope = Literal["dataset", "data_vars", "dims", "coords"]
+AtomicCheckFn = Callable[[xr.DataArray | CanonicalDataset], AtomicCheckResult]
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class CheckDefinition:
     data_scope: DataScope
     plugin: str = "local"
 
-    def run(self, data: xr.DataArray) -> AtomicCheckResult:
+    def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
         raise NotImplementedError
 
 
@@ -29,14 +29,14 @@ class CheckDefinition:
 class CallableCheck(CheckDefinition):
     fn: AtomicCheckFn | None = None
 
-    def run(self, data: xr.DataArray) -> AtomicCheckResult:
+    def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
         if self.fn is None:
             raise ValueError("CallableCheck requires a callable 'fn'.")
         return self.fn(data)
 
 
 def run_atomic_check(
-    data: xr.DataArray,
+    data: xr.DataArray | CanonicalDataset,
     definition: CheckDefinition,
     *,
     scope_item: str | None = None,
@@ -108,7 +108,7 @@ class CheckSuite:
         for definition in self.checks:
             checks_by_scope[definition.data_scope].append(definition)
 
-        for data_scope in ("data_vars", "coords", "dims"):
+        for data_scope in ("dataset", "data_vars", "coords", "dims"):
             scope_definitions = checks_by_scope.get(data_scope, [])
             if not scope_definitions:
                 continue
@@ -197,8 +197,11 @@ def _summary_from_results(results: list[AtomicCheckResult]) -> SuiteSummary:
 
 
 def _with_dataset_attrs(
-    data: xr.DataArray, dataset_attrs: dict[str, object]
-) -> xr.DataArray:
+    data: xr.DataArray | CanonicalDataset,
+    dataset_attrs: dict[str, object],
+) -> xr.DataArray | CanonicalDataset:
+    if isinstance(data, CanonicalDataset):
+        return data
     enriched = data.copy(deep=False)
     attrs = dict(dataset_attrs)
     attrs.update(data.attrs)
@@ -208,7 +211,10 @@ def _with_dataset_attrs(
 
 def _scope_targets(
     dataset: CanonicalDataset, data_scope: DataScope
-) -> list[tuple[str, xr.DataArray]]:
+) -> list[tuple[str, xr.DataArray | CanonicalDataset]]:
+    if data_scope == "dataset":
+        return [("dataset", dataset)]
+
     if data_scope == "data_vars":
         return [(str(name), dataset[name]) for name in dataset.data_vars]
 

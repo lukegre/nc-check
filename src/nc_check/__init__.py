@@ -1,8 +1,10 @@
 """Plugin-based dataset check framework for canonical time/lat/lon xarray datasets."""
 
+from .accessor import CheckAccessor
 from .api import (
     canonicalize_dataset,
     create_registry,
+    run_cfchecker_report,
     run_cf_compliance,
     run_ocean_cover,
     run_suite,
@@ -11,10 +13,12 @@ from .api import (
 from .dataset import CanonicalDataset
 from .models import AtomicCheckResult, CheckStatus, SuiteReport
 from .plugins import (
+    CFCheckerReportPlugin,
     CFCompliancePlugin,
     CheckRegistry,
     OceanCoverPlugin,
     TimeCoverPlugin,
+    cfchecker_report_check_names,
     cf_check_names,
     ocean_check_names,
     ocean_check_suite,
@@ -25,6 +29,8 @@ from .suite import CallableCheck, CheckDefinition, CheckSuite, run_atomic_check
 
 __all__ = [
     "AtomicCheckResult",
+    "CheckAccessor",
+    "CFCheckerReportPlugin",
     "CFCompliancePlugin",
     "CanonicalDataset",
     "CallableCheck",
@@ -36,6 +42,7 @@ __all__ = [
     "SuiteReport",
     "TimeCoverPlugin",
     "canonicalize_dataset",
+    "cfchecker_report_check_names",
     "cf_check_names",
     "create_registry",
     "ocean_check_names",
@@ -43,6 +50,7 @@ __all__ = [
     "render_html_report",
     "report_to_dict",
     "run_atomic_check",
+    "run_cfchecker_report",
     "run_cf_compliance",
     "run_ocean_cover",
     "run_suite",
