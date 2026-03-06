@@ -1,23 +1,13 @@
-from .cfchecker_report import (
-    CFCheckerReportPlugin,
-    build_cfchecker_suite_report,
-    cfchecker_report_check_names,
-)
-from .cf_compliance import CFCompliancePlugin, cf_check_names
-from .ocean_cover import OceanCoverPlugin, ocean_check_names, ocean_check_suite
-from .registry import CheckRegistry
-from .time_cover import TimeCoverPlugin, time_cover_check_names
+from .ocean_cover import ocean_check_suite
+from .time_cover import time_cover_suite
+from .cf_compliance import cf_compliance_suite
+from .cfchecker_report import cfchecker_report_suite
+from .gcb_ocean_dataprods import gcb_ocean_dataprod_suite
 
 __all__ = [
-    "CFCheckerReportPlugin",
-    "CFCompliancePlugin",
-    "CheckRegistry",
-    "OceanCoverPlugin",
-    "TimeCoverPlugin",
-    "build_cfchecker_suite_report",
-    "cfchecker_report_check_names",
-    "cf_check_names",
-    "ocean_check_names",
     "ocean_check_suite",
-    "time_cover_check_names",
+    "time_cover_suite",
+    "cf_compliance_suite",
+    "gcb_ocean_dataprod_suite",
+    "cfchecker_report_suite",
 ]

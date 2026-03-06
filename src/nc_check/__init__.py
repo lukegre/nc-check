@@ -1,60 +1,32 @@
 """Plugin-based dataset check framework for canonical time/lat/lon xarray datasets."""
 
-from .accessor import CheckAccessor
-from .api import (
-    canonicalize_dataset,
-    create_registry,
-    run_cfchecker_report,
-    run_cf_compliance,
-    run_ocean_cover,
-    run_suite,
-    run_time_cover,
-)
+from .settings import config
 from .dataset import CanonicalDataset
 from .models import AtomicCheckResult, CheckStatus, SuiteReport
 from .plugins import (
-    CFCheckerReportPlugin,
-    CFCompliancePlugin,
-    CheckRegistry,
-    OceanCoverPlugin,
-    TimeCoverPlugin,
-    cfchecker_report_check_names,
-    cf_check_names,
-    ocean_check_names,
+    cf_compliance_suite,
     ocean_check_suite,
-    time_cover_check_names,
+    time_cover_suite,
+    gcb_ocean_dataprod_suite,
+    cfchecker_report_suite,
 )
 from .reporting import render_html_report, report_to_dict, save_html_report
-from .suite import CallableCheck, CheckDefinition, CheckSuite, run_atomic_check
+from . import accessor, suite  # noqa: F401
+
 
 __all__ = [
-    "AtomicCheckResult",
-    "CheckAccessor",
-    "CFCheckerReportPlugin",
-    "CFCompliancePlugin",
     "CanonicalDataset",
-    "CallableCheck",
-    "CheckDefinition",
-    "CheckRegistry",
+    "AtomicCheckResult",
     "CheckStatus",
-    "CheckSuite",
-    "OceanCoverPlugin",
     "SuiteReport",
-    "TimeCoverPlugin",
-    "canonicalize_dataset",
-    "cfchecker_report_check_names",
-    "cf_check_names",
-    "create_registry",
-    "ocean_check_names",
+    "cf_compliance_suite",
     "ocean_check_suite",
+    "time_cover_suite",
     "render_html_report",
     "report_to_dict",
-    "run_atomic_check",
-    "run_cfchecker_report",
-    "run_cf_compliance",
-    "run_ocean_cover",
-    "run_suite",
-    "run_time_cover",
-    "time_cover_check_names",
+    "gcb_ocean_dataprod_suite",
+    "cfchecker_report_suite",
     "save_html_report",
+    "config",
+    "suite",
 ]

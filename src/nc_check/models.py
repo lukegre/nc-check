@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from os import PathLike
 from typing import Any
+
+from IPython.display import HTML
 
 
 class CheckStatus(str, Enum):
@@ -93,18 +96,32 @@ class SuiteSummary:
 @dataclass(frozen=True)
 class SuiteReport:
     suite_name: str
-    plugin: str | None
     checks: list[AtomicCheckResult]
     summary: SuiteSummary
     results: dict[str, dict[str, dict[str, AtomicCheckResult]]] = field(
         default_factory=dict
     )
-    dataset_html: str | None = None
+    source_file: str | None = None
+    _dataset_html: str | None = None
 
-    def to_html(self) -> str:
+    def to_json(self, report_fname: str | PathLike[str] | None = None) -> None | str:
+        import json
+
+        json_str = json.dumps(self.to_dict(), indent=2)
+        if report_fname:
+            with open(report_fname, "w", encoding="utf-8") as f:
+                f.write(json_str)
+        return json_str
+
+    def to_html(self, report_fname: str | PathLike[str] | None = None) -> None | HTML:
         from .reporting import render_html_report
 
-        return render_html_report(self)
+        html = render_html_report(self)
+        if report_fname:
+            with open(report_fname, "w", encoding="utf-8") as f:
+                f.write(html)
+        else:
+            return HTML(html)
 
     def to_dict(self) -> dict[str, Any]:
         structured = {
@@ -119,12 +136,11 @@ class SuiteReport:
         }
         return {
             "suite_name": self.suite_name,
-            "plugin": self.plugin,
             "checks": [item.to_dict() for item in self.checks],
             "results": structured,
-            "dataset_html": self.dataset_html,
             "summary": self.summary.to_dict(),
+            "source_file": self.source_file,
         }
 
     def __repr__(self) -> str:
-        return f"SuiteReport(suite_name={self.suite_name}, plugin={self.plugin}, checks={len(self.checks)}, summary={self.summary})"
+        return f"SuiteReport(suite_name={self.suite_name}, checks={len(self.checks)}, summary={self.summary})"

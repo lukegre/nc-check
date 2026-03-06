@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 import numpy as np
 import xarray as xr
 
 from ..models import AtomicCheckResult
-from ..suite import CallableCheck
+from ..suite import CallableCheck, CheckSuite
+
+_CF_SUITE_NAME = "CF Compliance"
 
 _TIME_UNITS_RE = re.compile(
     r"^\s*(seconds?|minutes?|hours?|days?|months?|years?)\s+since\s+.+$",
@@ -15,6 +16,9 @@ _TIME_UNITS_RE = re.compile(
 )
 
 
+####################################
+# Atomic Checks for CF compliance  #
+####################################
 def _conventions_check(data: xr.DataArray) -> AtomicCheckResult:
     conventions = str(data.attrs.get("Conventions", "")).strip()
     if not conventions:
@@ -149,114 +153,93 @@ def _time_units_check(data: xr.DataArray) -> AtomicCheckResult:
     )
 
 
-def _lat_lon_range_check(data: xr.DataArray) -> AtomicCheckResult:
-    lat = data.coords.get("lat")
-    lon = data.coords.get("lon")
-    if lat is None or lon is None:
-        return AtomicCheckResult.failed_result(
-            name="cf.coordinate_ranges",
-            info="Latitude or longitude coordinate is missing.",
+def _latitude_range_check(data: xr.DataArray) -> AtomicCheckResult:
+    values = np.asarray(data.values, dtype=float)
+    lat_min = float(np.nanmin(values))
+    lat_max = float(np.nanmax(values))
+    lat_ok = lat_min >= -90.0 and lat_max <= 90.0
+
+    if lat_ok:
+        return AtomicCheckResult.passed_result(
+            name="cf.latitude_range",
+            info="Latitude range is CF-compatible.",
+            details={"lat_min": lat_min, "lat_max": lat_max},
         )
 
-    lat_values = np.asarray(lat.values, dtype=float)
-    lon_values = np.asarray(lon.values, dtype=float)
+    return AtomicCheckResult.failed_result(
+        name="cf.latitude_range",
+        info="Latitude values are outside CF-compatible range [-90, 90].",
+        details={"lat_min": lat_min, "lat_max": lat_max},
+    )
 
-    lat_min = float(np.nanmin(lat_values))
-    lat_max = float(np.nanmax(lat_values))
-    lon_min = float(np.nanmin(lon_values))
-    lon_max = float(np.nanmax(lon_values))
 
-    lat_ok = lat_min >= -90.0 and lat_max <= 90.0
+def _longitude_range_check(data: xr.DataArray) -> AtomicCheckResult:
+    values = np.asarray(data.values, dtype=float)
+    lon_min = float(np.nanmin(values))
+    lon_max = float(np.nanmax(values))
     lon_ok = (lon_min >= -180.0 and lon_max <= 180.0) or (
         lon_min >= 0.0 and lon_max <= 360.0
     )
 
-    if lat_ok and lon_ok:
+    if lon_ok:
         return AtomicCheckResult.passed_result(
-            name="cf.coordinate_ranges",
-            info="Latitude and longitude ranges are CF-compatible.",
-            details={
-                "lat_min": lat_min,
-                "lat_max": lat_max,
-                "lon_min": lon_min,
-                "lon_max": lon_max,
-            },
+            name="cf.longitude_range",
+            info="Longitude range is CF-compatible.",
+            details={"lon_min": lon_min, "lon_max": lon_max},
         )
 
     return AtomicCheckResult.failed_result(
-        name="cf.coordinate_ranges",
-        info="Latitude or longitude values are outside CF-compatible ranges.",
-        details={
-            "lat_min": lat_min,
-            "lat_max": lat_max,
-            "lon_min": lon_min,
-            "lon_max": lon_max,
-        },
+        name="cf.longitude_range",
+        info="Longitude values are outside CF-compatible ranges [-180,180] or [0,360].",
+        details={"lon_min": lon_min, "lon_max": lon_max},
     )
 
 
-class CFCompliancePlugin:
-    """Example plugin that contributes atomic CF checks."""
-
-    name = "cf_compliance"
-
-    def register(self, registry: Any) -> None:
-        registry.register_check(
-            check=CallableCheck(
-                name="cf.conventions",
-                data_scope="data_vars",
-                plugin=self.name,
-                fn=_conventions_check,
-            )
-        )
-        registry.register_check(
-            check=CallableCheck(
-                name="cf.coordinates_present",
-                data_scope="data_vars",
-                plugin=self.name,
-                fn=_coordinate_presence_check,
-            )
-        )
-        registry.register_check(
-            check=CallableCheck(
-                name="cf.latitude_units",
-                data_scope="data_vars",
-                plugin=self.name,
-                fn=_latitude_units_check,
-            )
-        )
-        registry.register_check(
-            check=CallableCheck(
-                name="cf.longitude_units",
-                data_scope="data_vars",
-                plugin=self.name,
-                fn=_longitude_units_check,
-            )
-        )
-        registry.register_check(
-            check=CallableCheck(
-                name="cf.time_units",
-                data_scope="data_vars",
-                plugin=self.name,
-                fn=_time_units_check,
-            )
-        )
-        registry.register_check(
-            check=CallableCheck(
-                name="cf.coordinate_ranges",
-                data_scope="data_vars",
-                plugin=self.name,
-                fn=_lat_lon_range_check,
-            )
-        )
-
-
-def cf_check_names() -> tuple[str, ...]:
-    return (
-        "cf.conventions",
-        "cf.coordinates_present",
-        "cf.latitude_units",
-        "cf.longitude_units",
-        "cf.time_units",
-        "cf.coordinate_ranges",
-    )
+##################################
+# CheckSuite for CF compliance   #
+##################################
+cf_compliance_suite = CheckSuite(
+    name=_CF_SUITE_NAME,
+    checks=[
+        CallableCheck(
+            name="cf.conventions",
+            data_scope="dataset",
+            fn=_conventions_check,
+        ),
+        CallableCheck(
+            name="cf.coordinates_present",
+            data_scope="dataset",
+            fn=_coordinate_presence_check,
+        ),
+        CallableCheck(
+            name="cf.latitude_units",
+            data_scope="coords",
+            variables=["lat"],
+            fn=_latitude_units_check,
+        ),
+        CallableCheck(
+            name="cf.longitude_units",
+            data_scope="coords",
+            variables=["lon"],
+            fn=_longitude_units_check,
+        ),
+        CallableCheck(
+            name="cf.time_units",
+            data_scope="coords",
+            variables=["time"],
+            fn=_time_units_check,
+        ),
+        CallableCheck(
+            name="cf.latitude_range",
+            data_scope="coords",
+            variables=["lat"],
+            fn=_latitude_range_check,
+        ),
+        CallableCheck(
+            name="cf.longitude_range",
+            data_scope="coords",
+            variables=["lon"],
+            fn=_longitude_range_check,
+        ),
+    ],
+)

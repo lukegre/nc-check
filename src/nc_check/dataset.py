@@ -10,7 +10,7 @@ import xarray as xr
 _ALIAS_GROUPS = {
     "time": ("time", "t"),
     "lat": ("lat", "latitude", "y"),
-    "lon": ("lon", "longitude", "x"),
+    "lon": ("lon", "longitude", "x", "long"),
 }
 _GLOBAL_LAT_SPAN_DEG = 175.0
 _GLOBAL_LON_SPAN_DEG = 355.0
@@ -41,6 +41,22 @@ class CanonicalDataset(xr.Dataset):
         if isinstance(ds, cls):
             return ds
 
+        if not isinstance(ds, xr.Dataset):
+            raise ValueError("ds must be an xr.Dataset")
+
+        if not ds.dims:
+            raise ValueError("ds must have dimensions")
+
+        if not ds.coords:
+            raise ValueError("ds must have coordinates")
+
+        if not ds.data_vars:
+            raise ValueError("ds must have data variables")
+
+        fname = ds.encoding.get("source", None)
+        if fname is not None:
+            ds.attrs["source"] = fname
+
         normalized = ds
         if rename_aliases:
             rename_map = _build_rename_map(normalized)
@@ -54,6 +70,11 @@ class CanonicalDataset(xr.Dataset):
             coords=normalized.coords,
             attrs=normalized.attrs,
         )
+
+    @classmethod
+    def from_file(cls, fname: str, **kwargs: object) -> CanonicalDataset:
+        ds = xr.open_dataset(fname, **kwargs)
+        return cls.from_xarray(ds)
 
     @property
     def coordinate_names(self) -> CoordinateNames:

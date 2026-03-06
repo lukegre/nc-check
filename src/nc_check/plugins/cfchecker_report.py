@@ -12,17 +12,20 @@ from typing import Any
 import xarray as xr
 
 from ..models import AtomicCheckResult, CheckStatus, SuiteReport, SuiteSummary
-from ..suite import CallableCheck
+from ..suite import CheckSuite
 
-_CFCHECKER_REPORT_CHECK = "cfchecker.package_report"
 _SUITE_NAME = "cfchecker_report"
-_PLUGIN_NAME = "cfchecker_report"
 _SEVERITY_PATTERN = re.compile(
     r"^\s*(ERROR|WARNING|WARN|INFO|FATAL)\s*[:\-]\s*(.+?)\s*$",
     re.IGNORECASE,
 )
 _CODE_PATTERN = re.compile(r"^\(([^)]+)\):\s*(.+?)\s*$")
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
+
+
+class CheckSuiteCFchecker(CheckSuite):
+    def run(self, dataset: xr.Dataset) -> SuiteReport:
+        return build_cfchecker_suite_report(dataset)
 
 
 def _normalize_level(raw_level: str) -> str:
@@ -283,13 +286,11 @@ def build_cfchecker_suite_report(dataset: xr.Dataset) -> SuiteReport:
         checks = [failed_check]
         return SuiteReport(
             suite_name=_SUITE_NAME,
-            plugin=_PLUGIN_NAME,
             checks=checks,
             summary=_summary_from_checks(checks),
             results={
                 "dataset": {"dataset": {"cfchecker.execution_error": failed_check}}
             },
-            dataset_html=_dataset_repr_html(dataset),
         )
 
     checks, hierarchy = _convert_to_checks(
@@ -299,54 +300,10 @@ def build_cfchecker_suite_report(dataset: xr.Dataset) -> SuiteReport:
 
     return SuiteReport(
         suite_name=_SUITE_NAME,
-        plugin=_PLUGIN_NAME,
         checks=checks,
         summary=_summary_from_checks(checks),
         results=hierarchy,
-        dataset_html=_dataset_repr_html(dataset),
     )
 
 
-def _cfchecker_report_check(data: xr.DataArray | xr.Dataset) -> AtomicCheckResult:
-    if not isinstance(data, xr.Dataset):
-        return AtomicCheckResult.failed_result(
-            name=_CFCHECKER_REPORT_CHECK,
-            info="cfchecker report check requires dataset scope.",
-            details={"actual_type": type(data).__name__},
-        )
-
-    report = build_cfchecker_suite_report(data)
-    summary = report.summary
-    info = (
-        "cfchecker report converted: "
-        f"errors={summary.failed}, warnings={summary.skipped}, info={summary.passed}."
-    )
-    if summary.failed > 0:
-        return AtomicCheckResult.failed_result(
-            name=_CFCHECKER_REPORT_CHECK,
-            info=info,
-            details={"check_count": summary.checks_run},
-        )
-    return AtomicCheckResult.passed_result(
-        name=_CFCHECKER_REPORT_CHECK,
-        info=info,
-        details={"check_count": summary.checks_run},
-    )
-
-
-class CFCheckerReportPlugin:
-    name = _PLUGIN_NAME
-
-    def register(self, registry: Any) -> None:
-        registry.register_check(
-            check=CallableCheck(
-                name=_CFCHECKER_REPORT_CHECK,
-                data_scope="dataset",
-                plugin=self.name,
-                fn=_cfchecker_report_check,
-            )
-        )
-
-
-def cfchecker_report_check_names() -> tuple[str, ...]:
-    return (_CFCHECKER_REPORT_CHECK,)
+cfchecker_report_suite = CheckSuiteCFchecker(name=_SUITE_NAME, checks=[])

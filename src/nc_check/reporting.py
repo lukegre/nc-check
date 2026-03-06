@@ -6,7 +6,15 @@ import re
 from typing import Any
 
 from .models import SuiteReport
-from .report_styles import REPORT_STYLES
+
+_REPORT_CSS_PATH = Path(__file__).with_name("report.css")
+
+
+def _load_report_styles() -> str:
+    return _REPORT_CSS_PATH.read_text(encoding="utf-8").strip()
+
+
+REPORT_STYLES = _load_report_styles()
 
 _SCOPED_NAME_PATTERN = re.compile(
     r"^(?P<check>.+)\[(?P<scope>[^:\]]+):(?P<item>[^\]]+)\]$"
@@ -200,17 +208,36 @@ def _render_variable_section(
 def _render_scope_section(
     data_scope: str, variables: dict[str, dict[str, dict[str, Any]]]
 ) -> str:
+    hide_skipped = data_scope in ("coords", "dims")
+
+    filtered_variables: dict[str, dict[str, dict[str, Any]]] = {}
+    for var_name, checks_by_name in variables.items():
+        if hide_skipped:
+            checks_by_name = {
+                k: v
+                for k, v in checks_by_name.items()
+                if not (
+                    isinstance(v, dict)
+                    and str(v.get("status", "")).strip().lower() == "skipped"
+                )
+            }
+        if checks_by_name:
+            filtered_variables[var_name] = checks_by_name
+
+    if not filtered_variables:
+        return ""
+
     variable_sections: list[str] = []
     scope_items_for_counts: list[dict[str, Any]] = []
 
-    for per_variable in variables.values():
+    for per_variable in filtered_variables.values():
         scope_items_for_counts.extend(
             item for item in per_variable.values() if isinstance(item, dict)
         )
 
-    for variable_name in sorted(variables):
+    for variable_name in sorted(filtered_variables):
         variable_sections.append(
-            _render_variable_section(variable_name, variables[variable_name])
+            _render_variable_section(variable_name, filtered_variables[variable_name])
         )
 
     scope_total, scope_passed, scope_failed, scope_skipped = _status_counts(
@@ -239,7 +266,7 @@ def _render_scope_section(
 def _render_grouped_sections(
     grouped: dict[str, dict[str, dict[str, dict[str, Any]]]],
 ) -> str:
-    scope_order = {"dataset": 0, "data_vars": 1, "coords": 2, "dims": 3}
+    scope_order = {"dataset": 0, "dims": 1, "coords": 2, "data_vars": 3}
     scope_sections: list[str] = []
 
     for data_scope in sorted(grouped, key=lambda key: (scope_order.get(key, 99), key)):
@@ -263,7 +290,7 @@ def _render_dataset_section(dataset_html: str | None) -> str:
     )
 
 
-def _render_summary_items(summary: dict[str, Any], plugin: Any) -> str:
+def _render_summary_items(summary: dict[str, Any], checks: list[Any]) -> str:
     header_rows = [
         ("Overall status", str(summary.get("overall_status", "unknown"))),
         ("Checks run", str(summary.get("checks_run", 0))),
@@ -271,8 +298,6 @@ def _render_summary_items(summary: dict[str, Any], plugin: Any) -> str:
         ("Skipped", str(summary.get("skipped", 0))),
         ("Failed", str(summary.get("failed", 0))),
     ]
-    if plugin is not None:
-        header_rows.append(("Plugin", str(plugin)))
 
     summary_items: list[str] = []
     for key, value in header_rows:
@@ -289,31 +314,81 @@ def _render_summary_items(summary: dict[str, Any], plugin: Any) -> str:
         summary_items.append(
             f"<div class='{classes}'><dt>{escape(key)}</dt><dd>{value_html}</dd></div>"
         )
+
+    checks_summary_item = _render_checks_summary_item(checks)
+    if checks_summary_item:
+        summary_items.append(checks_summary_item)
+
     return "".join(summary_items)
 
 
-def _render_plugin_meta(plugin: Any) -> str:
-    if plugin is None:
+def _render_checks_summary_item(checks: Any) -> str:
+    if not isinstance(checks, list) or not checks:
         return ""
-    return f"<p class='meta'>Plugin: <strong>{escape(str(plugin))}</strong></p>"
+
+    seen: dict[str, str] = {}
+    for raw_item in checks:
+        if not isinstance(raw_item, dict):
+            continue
+        raw_name = str(raw_item.get("name", "")).strip()
+        if not raw_name:
+            continue
+        parsed = _parse_scoped_name(raw_name)
+        check_name = parsed[0] if parsed is not None else raw_name
+        status = str(raw_item.get("status", "unknown")).strip().lower() or "unknown"
+
+        previous = seen.get(check_name)
+        if previous is None or _STATUS_ORDER.get(status, 1) < _STATUS_ORDER.get(
+            previous, 1
+        ):
+            seen[check_name] = status
+
+    if not seen:
+        return ""
+
+    rows = [
+        (
+            "<li class='summary-check-row'>"
+            f"<span class='status-badge {_status_class(status)}'>{escape(status)}</span>"
+            f"<span class='summary-check-name'>{escape(name)}</span>"
+            "</li>"
+        )
+        for name, status in sorted(seen.items(), key=lambda item: item[0].lower())
+    ]
+
+    return (
+        "<div class='summary-item summary-item-checks'>"
+        "<dt>Tests run</dt>"
+        f"<dd><ul class='summary-check-list'>{''.join(rows)}</ul></dd>"
+        "</div>"
+    )
 
 
 def render_html_report(report: SuiteReport | dict[str, Any]) -> str:
     payload = report_to_dict(report)
     suite_name = escape(str(payload.get("suite_name", "suite")))
-    plugin = payload.get("plugin")
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
-    nested_results = (
-        payload.get("results") if isinstance(payload.get("results"), dict) else {}
+    source_file = _source_file_name(report, payload)
+    raw_summary = payload.get("summary")
+    summary: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
+
+    raw_checks = payload.get("checks")
+    checks: list[Any] = raw_checks if isinstance(raw_checks, list) else []
+
+    raw_nested_results = payload.get("results")
+    nested_results: dict[str, Any] = (
+        raw_nested_results if isinstance(raw_nested_results, dict) else {}
     )
-    raw_dataset_html = payload.get("dataset_html")
+    raw_dataset_html = getattr(report, "_dataset_html", None)
     dataset_html = raw_dataset_html if isinstance(raw_dataset_html, str) else None
 
     grouped_html = _render_grouped_sections(_grouped_checks(checks, nested_results))
     dataset_section_html = _render_dataset_section(dataset_html)
-    summary_html = _render_summary_items(summary, plugin)
-    plugin_html = _render_plugin_meta(plugin)
+    summary_html = _render_summary_items(summary, checks)
+    file_meta_html = (
+        f"<p class='meta report-subheader'>File: {escape(source_file)}</p>"
+        if source_file
+        else ""
+    )
 
     return (
         "<!doctype html>"
@@ -327,8 +402,8 @@ def render_html_report(report: SuiteReport | dict[str, Any]) -> str:
         "<body>"
         "<main class='report'>"
         "<section class='panel header'>"
-        f"<h1>Suite: {suite_name}</h1>"
-        f"{plugin_html}"
+        f"<h1>{suite_name}</h1>"
+        f"{file_meta_html}"
         "</section>"
         f"{dataset_section_html}"
         "<section class='panel'>"
@@ -342,6 +417,20 @@ def render_html_report(report: SuiteReport | dict[str, Any]) -> str:
         "</body>"
         "</html>"
     )
+
+
+def _source_file_name(
+    report: SuiteReport | dict[str, Any], payload: dict[str, Any]
+) -> str | None:
+    source = payload.get("source_file")
+    if source is None and isinstance(report, SuiteReport):
+        source = report.source_file
+    if source is None:
+        return None
+    source_text = str(source).strip()
+    if not source_text:
+        return None
+    return Path(source_text).name
 
 
 def save_html_report(

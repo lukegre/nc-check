@@ -1,163 +1,78 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+import re
 from os import PathLike
+from typing import Callable, Literal
 
+from IPython.display import HTML
 import xarray as xr
 
-from .api import (
-    run_cfchecker_report,
-    run_cf_compliance,
-    run_ocean_cover,
-    run_time_cover,
-)
-from .models import AtomicCheckResult, CheckStatus, SuiteReport, SuiteSummary
-from .reporting import save_html_report
+from .dataset import CanonicalDataset
+from .suite import CheckSuite
+from . import plugins
 
 
-def _merge_results(
-    reports: Iterable[SuiteReport],
-) -> dict[str, dict[str, dict[str, AtomicCheckResult]]]:
-    merged: dict[str, dict[str, dict[str, AtomicCheckResult]]] = {}
-    for report in reports:
-        for data_scope, scope_items in report.results.items():
-            scope_bucket = merged.setdefault(data_scope, {})
-            for scope_item, checks_by_name in scope_items.items():
-                item_bucket = scope_bucket.setdefault(scope_item, {})
-                for check_name, check in checks_by_name.items():
-                    unique_name = check_name
-                    counter = 2
-                    while unique_name in item_bucket:
-                        unique_name = f"{check_name}__{counter}"
-                        counter += 1
-                    item_bucket[unique_name] = check
-    return merged
+def get_check_suites() -> list[CheckSuite]:
+    """Get all check suites."""
+    list_of_suites = []
+    plugin_vars = dir(plugins)
+    for var_name in plugin_vars:
+        var = getattr(plugins, var_name)
+        if isinstance(var, CheckSuite):
+            list_of_suites.append(var)
 
-
-def _summary_from_checks(checks: list[AtomicCheckResult]) -> SuiteSummary:
-    passed = sum(1 for item in checks if item.status == CheckStatus.passed)
-    skipped = sum(1 for item in checks if item.status == CheckStatus.skipped)
-    failed = sum(1 for item in checks if item.status == CheckStatus.failed)
-
-    if failed > 0:
-        overall_status = CheckStatus.failed
-    elif passed > 0:
-        overall_status = CheckStatus.passed
-    else:
-        overall_status = CheckStatus.skipped
-
-    return SuiteSummary(
-        checks_run=len(checks),
-        passed=passed,
-        skipped=skipped,
-        failed=failed,
-        overall_status=overall_status,
-    )
-
-
-def _maybe_save_report(
-    report: SuiteReport,
-    html_report_fname: str | PathLike[str] | None,
-) -> None:
-    if html_report_fname is None:
-        return
-    save_html_report(report, html_report_fname)
+    if not list_of_suites:
+        raise ValueError("No check suites found in plugins")
+    return list_of_suites
 
 
 @xr.register_dataset_accessor("check")
 class CheckAccessor:
     def __init__(self, xarray_obj: xr.Dataset) -> None:
         self._obj = xarray_obj
-
-    def compliance(
-        self,
-        *,
-        html_report_fname: str | PathLike[str] | None = None,
-        **kwargs: object,
-    ) -> SuiteReport:
-        report = run_cf_compliance(self._obj, **kwargs)
-        _maybe_save_report(report, html_report_fname)
-        return report
-
-    def cfchecker_report(
-        self,
-        *,
-        html_report_fname: str | PathLike[str] | None = None,
-        **kwargs: object,
-    ) -> SuiteReport:
-        report = run_cfchecker_report(self._obj, **kwargs)
-        _maybe_save_report(report, html_report_fname)
-        return report
-
-    def ocean_cover(
-        self,
-        *,
-        html_report_fname: str | PathLike[str] | None = None,
-        **kwargs: object,
-    ) -> SuiteReport:
-        report = run_ocean_cover(self._obj, **kwargs)
-        _maybe_save_report(report, html_report_fname)
-        return report
-
-    def time_cover(
-        self,
-        *,
-        html_report_fname: str | PathLike[str] | None = None,
-        **kwargs: object,
-    ) -> SuiteReport:
-        report = run_time_cover(self._obj, **kwargs)
-        _maybe_save_report(report, html_report_fname)
-        return report
-
-    def all(
-        self,
-        *,
-        compliance: bool = True,
-        cfchecker_report: bool = False,
-        ocean_cover: bool = True,
-        time_cover: bool = True,
-        time_cover_var_name: str | None = None,
-        time_cover_time_name: str | None = "time",
-        time_cover_check_monotonic: bool = False,
-        time_cover_check_regular_spacing: bool = False,
-        html_report_fname: str | PathLike[str] | None = None,
-    ) -> SuiteReport:
-        reports: list[SuiteReport] = []
-
-        if compliance:
-            reports.append(run_cf_compliance(self._obj))
-        if cfchecker_report:
-            reports.append(run_cfchecker_report(self._obj))
-        if ocean_cover:
-            reports.append(run_ocean_cover(self._obj))
-        if time_cover:
-            reports.append(
-                run_time_cover(
-                    self._obj,
-                    var_name=time_cover_var_name,
-                    time_name=time_cover_time_name,
-                    check_time_monotonic=time_cover_check_monotonic,
-                    check_time_regular_spacing=time_cover_check_regular_spacing,
+        self._method_names: set[str] = set()
+        for suite in get_check_suites():
+            method_name = self._suite_method_name(suite.name)
+            if hasattr(self, method_name):
+                raise ValueError(
+                    f"Method name conflict: {method_name} already exists on CheckAccessor"
                 )
-            )
+            self._method_names.add(method_name)
+            setattr(self, method_name, self._make_suite_method(suite))
 
-        checks: list[AtomicCheckResult] = []
-        for report in reports:
-            checks.extend(report.checks)
+    def _suite_method_name(self, suite_name: str) -> str:
+        normalized = re.sub(r"[^a-zA-Z0-9]+", "_", suite_name.strip().lower())
+        return re.sub(r"_+", "_", normalized).strip("_")
 
-        dataset_html: str | None = None
-        for report in reports:
-            if report.dataset_html is not None:
-                dataset_html = report.dataset_html
-                break
+    def _make_suite_method(
+        self, suite: CheckSuite
+    ) -> Callable[
+        [Literal["html", "json"], str | PathLike[str] | None], dict | HTML | str | None
+    ]:
+        method_name = self._suite_method_name(suite.name)
 
-        report = SuiteReport(
-            suite_name="all_checks",
-            plugin="check_accessor",
-            checks=checks,
-            summary=_summary_from_checks(checks),
-            results=_merge_results(reports),
-            dataset_html=dataset_html,
-        )
-        _maybe_save_report(report, html_report_fname)
-        return report
+        def method(
+            format: Literal["html", "json"] = "html",
+            report_fname: str | PathLike[str] | None = None,
+        ) -> dict | HTML | str | None:
+            canonical = CanonicalDataset.from_xarray(self._obj)
+            report = suite.run(canonical)
+            if format == "json":
+                return report.to_json(report_fname=report_fname)
+            elif format == "dict":
+                return report.to_dict()
+            elif format == "html":
+                return report.to_html(report_fname=report_fname)
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+
+        method.__name__ = method_name
+        method.__doc__ = f"Run the '{suite.name}' check suite and return HTML report."
+        return method
+
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | self._method_names)
+
+    def __repr__(self) -> str:
+        check_list = "\n\t" + "\n\t".join(sorted(self._method_names)) + "\n"
+        return f"<CheckAccessor> for xarray.Dataset with plugins: {check_list}"

@@ -590,6 +590,20 @@ def test_report_rendering_is_python_first_then_html() -> None:
     assert "cf.conventions" in html
 
 
+def test_report_includes_source_file_name_as_header_subtitle() -> None:
+    ds = _valid_dataset()
+    ds.attrs["source"] = "/tmp/sample/path/input-file.nc"
+    report = nc_check.run_cf_compliance(ds)
+
+    payload = report.to_dict()
+    html = report.to_html().data
+
+    assert payload["source_file"] == "input-file.nc"
+    assert "<h1>cf_compliance</h1>" in html
+    assert "File: input-file.nc" in html
+    assert html.index("<h1>cf_compliance</h1>") < html.index("File: input-file.nc")
+
+
 def test_dataset_accessor_is_registered() -> None:
     ds = _valid_dataset()
     assert hasattr(ds, "check")

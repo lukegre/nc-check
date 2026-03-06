@@ -22,6 +22,9 @@ _OCEAN_POINTS: dict[str, dict[str, float]] = {
 }
 
 
+#################################
+# Atomic Checks for ocean cover #
+#################################
 def check_180_lon_shift(data: xr.DataArray) -> AtomicCheckResult:
     """
     Check whether data appears shifted by 180 degrees in longitude without
@@ -36,13 +39,25 @@ def check_180_lon_shift(data: xr.DataArray) -> AtomicCheckResult:
             info="Skipped longitude-shift check; dataset must include lat/lon coordinates.",
         )
 
-    sampled = _sample_time_slice(data, n_checking_timesteps=4)
-    land_values = _collect_point_values(sampled, _LAND_POINTS)
-    ocean_values = _collect_point_values(sampled, _OCEAN_POINTS)
-    display_values = _format_display_values(land_values | ocean_values)
+    data = _lon_to_180_range(data)
 
-    all_land_nan = all(np.isnan(val) for val in land_values.values())
-    all_ocean_nan = all(np.isnan(val) for val in ocean_values.values())
+    sampled = _sample_time_slice(data, n_checking_timesteps=4)
+    land_values = _collect_latlon_point_values(sampled, _LAND_POINTS)
+    ocean_values = _collect_latlon_point_values(sampled, _OCEAN_POINTS)
+    display_values = _format_display_values(land_values | ocean_values)
+    all_values = {**land_values, **ocean_values}
+    is_bool = set(all_values.values()).issubset({0.0, 1.0, np.nan}) or np.issubdtype(
+        sampled.dtype, np.bool_
+    )
+    if is_bool:
+        return AtomicCheckResult.skipped_result(
+            name=_LON_SHIFT_CHECK_NAME,
+            info="Skipped longitude-shift check; data appears to be boolean or binary, which is not suitable for this check.",
+            details={"sampled_values": display_values},
+        )
+
+    all_land_nan = all(is_nan_or_zero_if_int(val) for val in land_values.values())
+    all_ocean_nan = all(is_nan_or_zero_if_int(val) for val in ocean_values.values())
 
     if all_land_nan and not all_ocean_nan:
         return AtomicCheckResult.passed_result(
@@ -97,43 +112,43 @@ def check_missing_lons(
     )
 
 
-def _ocean_checks(*, plugin_name: str) -> list[CallableCheck]:
-    return [
+##############################
+# CheckSuite for ocean cover #
+##############################
+ocean_check_suite = CheckSuite(
+    name=_OCEAN_PLUGIN_NAME,
+    checks=[
         CallableCheck(
             name=_LON_SHIFT_CHECK_NAME,
             data_scope="data_vars",
-            plugin=plugin_name,
             fn=check_180_lon_shift,
         ),
         CallableCheck(
             name=_MISSING_LONS_CHECK_NAME,
             data_scope="data_vars",
-            plugin=plugin_name,
             fn=check_missing_lons,
         ),
-    ]
-
-
-class OceanCoverPlugin:
-    name = _OCEAN_PLUGIN_NAME
-
-    def register(self, registry: object) -> None:
-        for check in _ocean_checks(plugin_name=self.name):
-            registry.register_check(check=check)
-
-
-def ocean_check_names() -> tuple[str, ...]:
-    return (
-        _LON_SHIFT_CHECK_NAME,
-        _MISSING_LONS_CHECK_NAME,
-    )
-
-
-ocean_check_suite = CheckSuite(
-    name=_OCEAN_PLUGIN_NAME,
-    checks=_ocean_checks(plugin_name=_OCEAN_PLUGIN_NAME),
-    plugin=_OCEAN_PLUGIN_NAME,
+    ],
 )
+
+
+####################
+# Helper functions #
+####################
+def is_nan_or_zero_if_int(value: float | int) -> bool:
+    if isinstance(value, int):
+        return value == 0
+    return np.isnan(value)
+
+
+def _lon_to_180_range(data: xr.DataArray) -> xr.DataArray:
+    if "lon" not in data.coords:
+        return data
+    lon = data.coords["lon"]
+    if lon.min() >= 0 and lon.max() <= 360:
+        shifted_lon = ((lon + 180) % 360) - 180
+        return data.assign_coords(lon=shifted_lon).sortby("lon")
+    return data
 
 
 def _mean_over_time_at_point(data: xr.DataArray, point: dict[str, float]) -> float:
@@ -143,7 +158,7 @@ def _mean_over_time_at_point(data: xr.DataArray, point: dict[str, float]) -> flo
     return float(selection.compute().item())
 
 
-def _collect_point_values(
+def _collect_latlon_point_values(
     data: xr.DataArray, points: dict[str, dict[str, float]]
 ) -> dict[str, float]:
     return {

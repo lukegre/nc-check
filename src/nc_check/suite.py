@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import defaultdict
+from pathlib import Path
 from typing import Callable, Iterable, Literal
 
 import numpy as np
@@ -11,15 +12,17 @@ import xarray as xr
 from .dataset import CanonicalDataset
 from .models import AtomicCheckResult, CheckStatus, SuiteReport, SuiteSummary
 
-DataScope = Literal["dataset", "data_vars", "dims", "coords"]
-AtomicCheckFn = Callable[[xr.DataArray | CanonicalDataset], AtomicCheckResult]
+DataScope = Literal["dims", "coords", "dataset", "data_vars"]
+DataArrayCheckFn = Callable[[xr.DataArray], AtomicCheckResult]
+DatasetCheckFn = Callable[[CanonicalDataset], AtomicCheckResult]
+AtomicCheckFn = DataArrayCheckFn | DatasetCheckFn
 
 
 @dataclass(frozen=True)
 class CheckDefinition:
     name: str
     data_scope: DataScope
-    plugin: str = "local"
+    variables: list[str] | None = None
 
     def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
         raise NotImplementedError
@@ -32,7 +35,7 @@ class CallableCheck(CheckDefinition):
     def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
         if self.fn is None:
             raise ValueError("CallableCheck requires a callable 'fn'.")
-        return self.fn(data)
+        return self.fn(data)  # type: ignore[arg-type]  # runtime dispatch via data_scope guarantees correct type
 
 
 def run_atomic_check(
@@ -94,13 +97,14 @@ class CheckSuite:
         *,
         name: str,
         checks: Iterable[CheckDefinition],
-        plugin: str | None = None,
     ) -> None:
         self.name = name
         self.checks = list(checks)
-        self.plugin = plugin
 
     def run(self, dataset: CanonicalDataset) -> SuiteReport:
+        assert isinstance(dataset, CanonicalDataset), (
+            "dataset must be a CanonicalDataset"
+        )
         results: list[AtomicCheckResult] = []
         hierarchy: dict[str, dict[str, dict[str, AtomicCheckResult]]] = {}
 
@@ -108,7 +112,7 @@ class CheckSuite:
         for definition in self.checks:
             checks_by_scope[definition.data_scope].append(definition)
 
-        for data_scope in ("dataset", "data_vars", "coords", "dims"):
+        for data_scope in ("dataset", "dims", "coords", "data_vars"):
             scope_definitions = checks_by_scope.get(data_scope, [])
             if not scope_definitions:
                 continue
@@ -123,10 +127,15 @@ class CheckSuite:
             for scope_item, data in scope_targets:
                 variable_results: dict[str, AtomicCheckResult] = {}
                 for definition in scope_definitions:
+                    if (
+                        definition.variables is not None
+                        and definition.variables != [scope_item]
+                        and scope_item not in definition.variables
+                    ):
+                        continue
                     scoped_definition = CallableCheck(
                         name=f"{definition.name}[{data_scope}:{scope_item}]",
                         data_scope=data_scope,
-                        plugin=definition.plugin,
                         fn=definition.run,
                     )
                     result = run_atomic_check(
@@ -142,24 +151,15 @@ class CheckSuite:
         summary = _summary_from_results(results)
         return SuiteReport(
             suite_name=self.name,
-            plugin=self.plugin,
             checks=results,
             summary=summary,
             results=hierarchy,
-            dataset_html=_dataset_repr_html(dataset),
+            source_file=_dataset_source_file(dataset),
+            _dataset_html=_dataset_repr_html(dataset),
         )
 
-    def make_web_report(
-        self, dataset: CanonicalDataset, html_report_fname: str
-    ) -> None:
-        from .reporting import save_html_report
-
-        report = self.run(dataset)
-
-        save_html_report(report, html_report_fname)
-
     def __repr__(self) -> str:
-        return f"CheckSuite(name={self.name}, checks={len(self.checks)}, plugin={self.plugin})"
+        return f"CheckSuite(name={self.name}, checks={len(self.checks)})"
 
 
 def _empty_scope_targets(definition: CheckDefinition) -> AtomicCheckResult:
@@ -222,7 +222,7 @@ def _scope_targets(
         return [(str(name), dataset.coords[name]) for name in dataset.coords]
 
     if data_scope == "dims":
-        targets: list[tuple[str, xr.DataArray]] = []
+        targets: list[tuple[str, xr.DataArray | CanonicalDataset]] = []
         for dim_name, size in dataset.sizes.items():
             if dim_name in dataset.coords:
                 targets.append((str(dim_name), dataset.coords[dim_name]))
@@ -250,3 +250,13 @@ def _dataset_repr_html(dataset: CanonicalDataset) -> str | None:
         return str(repr_html())
     except Exception:
         return None
+
+
+def _dataset_source_file(dataset: CanonicalDataset) -> str | None:
+    source = dataset.attrs.get("source")
+    if source is None:
+        return None
+    source_text = str(source).strip()
+    if not source_text:
+        return None
+    return Path(source_text).name
