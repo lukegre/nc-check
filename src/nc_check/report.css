@@ -9,12 +9,17 @@
   --line:#d7e1ea;
   --surface-soft:#f8fbfd;
   --accent:#0b7285;
-  --pass-bg:#e4f7eb;
+  --pass-bg:#daf6e5;
   --pass-text:#0d6331;
-  --fail-bg:#fde8e8;
+  --fail-bg:#ffd0d0;
   --fail-text:#9a1f1f;
-  --skip-bg:#fff4db;
-  --skip-text:#8a5a00;
+  --pass-text:#0d6331;
+  --warn-bg:#ffe8bb;
+  --warn-text:#a47000;
+  --skip-bg:#ececec;
+  --skip-text:#8d8d8d;
+  --fatal-text:#e9e9e9;
+  --fatal-bg:#d63c3c;
   --unknown-bg:#e6eef4;
   --unknown-text:#36536a;
   --shadow:0 7px 5px rgba(18,48,71,.05);
@@ -80,7 +85,7 @@ h1{
   margin:0;
   padding:1rem;
   display:grid;
-  grid-template-columns:repeat(5,minmax(0,1fr));
+  grid-template-columns:repeat(7,minmax(0,1fr));
   gap:.7rem;
 }
 .summary-item{
@@ -178,7 +183,7 @@ tbody tr:last-child td,tbody tr:last-child th{border-bottom:0;}
   border-bottom-color:#f0d5d5;
 }
 .check-row.status-failed td:first-child{box-shadow:inset 4px 0 0 #c94545;}
-.check-row.status-skipped td{background:#fffbf3;}
+.check-row.status-warning td{background:#fff5f5;}
 .check-row.status-passed td:first-child{box-shadow:inset 3px 0 0 #5aa17c;}
 .grouped-checks-table th,.grouped-checks-table td{font-size:.92rem;}
 .status-badge{
@@ -196,6 +201,8 @@ tbody tr:last-child td,tbody tr:last-child th{border-bottom:0;}
 .status-passed{background:var(--pass-bg);color:var(--pass-text);}
 .status-failed{background:var(--fail-bg);color:var(--fail-text);}
 .status-skipped{background:var(--skip-bg);color:var(--skip-text);}
+.status-warning{background:var(--warn-bg);color:var(--warn-text);}
+.status-fatal{background:var(--fatal-bg);color:var(--fatal-text);}
 .status-unknown{background:var(--unknown-bg);color:var(--unknown-text);}
 code{
   font-family:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;

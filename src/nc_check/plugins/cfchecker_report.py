@@ -9,6 +9,7 @@ import re
 import tempfile
 from typing import Any
 
+import numpy as np
 import xarray as xr
 
 from ..models import AtomicCheckResult, CheckStatus, SuiteReport, SuiteSummary
@@ -21,6 +22,7 @@ _SEVERITY_PATTERN = re.compile(
 )
 _CODE_PATTERN = re.compile(r"^\(([^)]+)\):\s*(.+?)\s*$")
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
+_CANONICAL_COORD_NAMES = {"time", "lat", "lon"}
 
 
 class CheckSuiteCFchecker(CheckSuite):
@@ -94,16 +96,6 @@ def _parse_cfchecker_messages(output: str) -> list[tuple[str, str]]:
     return messages
 
 
-def _summarize_messages(messages: list[tuple[str, str]], max_items: int = 12) -> str:
-    if not messages:
-        return ""
-    lines = [f"{level}: {message}" for level, message in messages[:max_items]]
-    remainder = len(messages) - len(lines)
-    if remainder > 0:
-        lines.append(f"... and {remainder} more")
-    return " | ".join(lines)
-
-
 def _messages_from_result(result: Any) -> list[tuple[str, str, str, str]]:
     if not isinstance(result, Mapping):
         return []
@@ -149,16 +141,6 @@ def _messages_from_result(result: Any) -> list[tuple[str, str, str, str]]:
     return messages
 
 
-def _dataset_repr_html(dataset: xr.Dataset) -> str | None:
-    repr_html = getattr(dataset, "_repr_html_", None)
-    if not callable(repr_html):
-        return None
-    try:
-        return str(repr_html())
-    except Exception:
-        return None
-
-
 def _summary_from_checks(checks: list[AtomicCheckResult]) -> SuiteSummary:
     passed = sum(1 for check in checks if check.status == CheckStatus.passed)
     skipped = sum(1 for check in checks if check.status == CheckStatus.skipped)
@@ -178,6 +160,93 @@ def _summary_from_checks(checks: list[AtomicCheckResult]) -> SuiteSummary:
         failed=failed,
         overall_status=overall,
     )
+
+
+def _is_string_diff_type_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "unsupported operand type(s) for -: 'str' and 'str'" in message
+
+
+def _sanitize_dataset_for_cfchecker(
+    dataset: xr.Dataset,
+) -> tuple[xr.Dataset, list[str]]:
+    sanitized = dataset.copy(deep=False)
+    removed_or_replaced: list[str] = []
+
+    for coord_name in list(sanitized.coords):
+        if coord_name in _CANONICAL_COORD_NAMES:
+            continue
+        coord = sanitized.coords[coord_name]
+        if getattr(coord.dtype, "kind", "") not in {"U", "S", "O"}:
+            continue
+
+        removed_or_replaced.append(str(coord_name))
+        if coord_name in sanitized.dims:
+            sanitized = sanitized.assign_coords(
+                {
+                    coord_name: np.arange(
+                        int(sanitized.sizes[coord_name]), dtype=np.int64
+                    )
+                }
+            )
+        else:
+            sanitized = sanitized.drop_vars(coord_name)
+
+    return sanitized, removed_or_replaced
+
+
+def _run_cfchecker_with_fallback(
+    dataset: xr.Dataset,
+) -> tuple[dict[str, Any], str, list[str]]:
+    source_path = _dataset_source_path(dataset)
+    if source_path is not None:
+        try:
+            run_result, combined_output = _run_cfchecker_in_process(source_path)
+            return run_result, combined_output, []
+        except TypeError as exc:
+            if not _is_string_diff_type_error(exc):
+                raise
+
+            sanitized, removed_or_replaced = _sanitize_dataset_for_cfchecker(dataset)
+            if not removed_or_replaced:
+                raise
+
+            with tempfile.TemporaryDirectory(prefix="nc-check-cfchecker-") as tmpdir:
+                path = Path(tmpdir) / "input.nc"
+                sanitized.to_netcdf(path)
+                run_result, combined_output = _run_cfchecker_in_process(path)
+                return run_result, combined_output, removed_or_replaced
+
+    with tempfile.TemporaryDirectory(prefix="nc-check-cfchecker-") as tmpdir:
+        path = Path(tmpdir) / "input.nc"
+        dataset.to_netcdf(path)
+
+        try:
+            run_result, combined_output = _run_cfchecker_in_process(path)
+            return run_result, combined_output, []
+        except TypeError as exc:
+            if not _is_string_diff_type_error(exc):
+                raise
+
+            sanitized, removed_or_replaced = _sanitize_dataset_for_cfchecker(dataset)
+            if not removed_or_replaced:
+                raise
+
+            sanitized.to_netcdf(path)
+            run_result, combined_output = _run_cfchecker_in_process(path)
+            return run_result, combined_output, removed_or_replaced
+
+
+def _dataset_source_path(dataset: xr.Dataset) -> Path | None:
+    source = dataset.attrs.get("source")
+    if source is None:
+        return None
+    source_path = Path(str(source).strip())
+    if not source_path.name.endswith(".nc"):
+        return None
+    if not source_path.exists() or not source_path.is_file():
+        return None
+    return source_path
 
 
 def _run_cfchecker_in_process(path: Path) -> tuple[dict[str, Any], str]:
@@ -269,10 +338,9 @@ def _convert_to_checks(
 
 def build_cfchecker_suite_report(dataset: xr.Dataset) -> SuiteReport:
     try:
-        with tempfile.TemporaryDirectory(prefix="nc-check-cfchecker-") as tmpdir:
-            path = Path(tmpdir) / "input.nc"
-            dataset.to_netcdf(path)
-            run_result, combined_output = _run_cfchecker_in_process(path)
+        run_result, combined_output, removed_or_replaced = _run_cfchecker_with_fallback(
+            dataset
+        )
     except Exception as exc:
         failed_check = AtomicCheckResult.failed_result(
             name="cfchecker.execution_error[dataset:dataset]",
@@ -297,6 +365,25 @@ def build_cfchecker_suite_report(dataset: xr.Dataset) -> SuiteReport:
         raw_result=run_result.get("raw_result"),
         combined_output=combined_output,
     )
+
+    if removed_or_replaced:
+        removed_text = ", ".join(sorted(removed_or_replaced))
+        preprocess_check = AtomicCheckResult.skipped_result(
+            name="cfchecker.preprocess.removed_string_coords[dataset:dataset]",
+            info=(
+                "Removed/replaced non-numeric coordinates before cfchecker run: "
+                f"{removed_text}"
+            ),
+            details={
+                "data_scope": "dataset",
+                "scope_item": "dataset",
+                "removed_or_replaced_coords": sorted(removed_or_replaced),
+            },
+        )
+        checks.insert(0, preprocess_check)
+        hierarchy.setdefault("dataset", {}).setdefault("dataset", {})[
+            "cfchecker.preprocess.removed_string_coords"
+        ] = preprocess_check
 
     return SuiteReport(
         suite_name=_SUITE_NAME,

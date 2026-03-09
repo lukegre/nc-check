@@ -11,7 +11,9 @@ from IPython.display import HTML
 class CheckStatus(str, Enum):
     skipped = "skipped"
     passed = "passed"
+    warning = "warning"
     failed = "failed"
+    fatal = "fatal"
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,36 @@ class AtomicCheckResult:
             details={} if details is None else dict(details),
         )
 
+    @classmethod
+    def warn_result(
+        cls,
+        *,
+        name: str,
+        info: str,
+        details: dict[str, Any] | None = None,
+    ) -> AtomicCheckResult:
+        return cls(
+            name=name,
+            status=CheckStatus.warning,
+            info=info,
+            details={} if details is None else dict(details),
+        )
+
+    @classmethod
+    def fatal_result(
+        cls,
+        *,
+        name: str,
+        info: str,
+        details: dict[str, Any] | None = None,
+    ) -> AtomicCheckResult:
+        return cls(
+            name=name,
+            status=CheckStatus.fatal,
+            info=info,
+            details={} if details is None else dict(details),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -80,7 +112,9 @@ class SuiteSummary:
     checks_run: int
     passed: int
     skipped: int
+    warnings: int
     failed: int
+    fatal: int
     overall_status: CheckStatus
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,7 +122,9 @@ class SuiteSummary:
             "checks_run": self.checks_run,
             "passed": self.passed,
             "skipped": self.skipped,
+            "warnings": self.warnings,
             "failed": self.failed,
+            "fatal": self.fatal,
             "overall_status": self.overall_status.value,
         }
 

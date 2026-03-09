@@ -73,7 +73,7 @@ class CanonicalDataset(xr.Dataset):
 
     @classmethod
     def from_file(cls, fname: str, **kwargs: object) -> CanonicalDataset:
-        ds = xr.open_dataset(fname, **kwargs)
+        ds = xr.open_dataset(fname, **kwargs)  # type: ignore
         return cls.from_xarray(ds)
 
     @property

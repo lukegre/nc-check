@@ -178,7 +178,9 @@ def _empty_scope_targets(definition: CheckDefinition) -> AtomicCheckResult:
 def _summary_from_results(results: list[AtomicCheckResult]) -> SuiteSummary:
     passed = sum(1 for result in results if result.status == CheckStatus.passed)
     skipped = sum(1 for result in results if result.status == CheckStatus.skipped)
+    warnings = sum(1 for result in results if result.status == CheckStatus.warning)
     failed = sum(1 for result in results if result.status == CheckStatus.failed)
+    fatal = sum(1 for result in results if result.status == CheckStatus.fatal)
 
     if failed > 0:
         overall = CheckStatus.failed
@@ -191,7 +193,9 @@ def _summary_from_results(results: list[AtomicCheckResult]) -> SuiteSummary:
         checks_run=len(results),
         passed=passed,
         skipped=skipped,
+        warnings=warnings,
         failed=failed,
+        fatal=fatal,
         overall_status=overall,
     )
 

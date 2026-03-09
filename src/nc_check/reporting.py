@@ -20,7 +20,14 @@ _SCOPED_NAME_PATTERN = re.compile(
     r"^(?P<check>.+)\[(?P<scope>[^:\]]+):(?P<item>[^\]]+)\]$"
 )
 _INTERNAL_DETAIL_KEYS = {"data_scope", "scope_item", "reported_name"}
-_STATUS_ORDER = {"failed": 0, "unknown": 1, "skipped": 2, "passed": 3}
+_STATUS_ORDER = {
+    "fatal": 0,
+    "failed": 1,
+    "warning": 2,
+    "unknown": 3,
+    "skipped": 4,
+    "passed": 5,
+}
 
 
 def report_to_dict(report: SuiteReport | dict[str, Any]) -> dict[str, Any]:
@@ -32,16 +39,21 @@ def report_to_dict(report: SuiteReport | dict[str, Any]) -> dict[str, Any]:
 def _status_class(value: str) -> str:
     lookup = {
         "passed": "status-passed",
+        "warning": "status-warning",
         "failed": "status-failed",
+        "fatal": "status-fatal",
         "skipped": "status-skipped",
     }
     return lookup.get(value.strip().lower(), "status-unknown")
 
 
-def _status_counts(items: list[dict[str, Any]]) -> tuple[int, int, int, int]:
+def _status_counts(items: list[dict[str, Any]]) -> tuple[int, int, int, int, int, int]:
     passed = 0
+    warning = 0
     failed = 0
+    fatal = 0
     skipped = 0
+
     for item in items:
         status = str(item.get("status", "")).strip().lower()
         if status == "passed":
@@ -50,12 +62,23 @@ def _status_counts(items: list[dict[str, Any]]) -> tuple[int, int, int, int]:
             failed += 1
         elif status == "skipped":
             skipped += 1
-    return len(items), passed, failed, skipped
+        elif status == "warning":
+            warning += 1
+        elif status == "fatal":
+            fatal += 1
+    total = passed + warning + failed + fatal + skipped
+    return total, passed, warning, failed, fatal, skipped
 
 
-def _overall_status(total: int, passed: int, failed: int, skipped: int) -> str:
+def _overall_status(
+    total: int, passed: int, warning: int, failed: int, fatal: int, skipped: int
+) -> str:
+    if fatal > 0:
+        return "fatal"
     if failed > 0:
         return "failed"
+    if warning > 0:
+        return "warning"
     if passed > 0:
         return "passed"
     if skipped > 0 or total > 0:
@@ -180,8 +203,12 @@ def _render_variable_section(
     variable_name: str, checks_by_name: dict[str, dict[str, Any]]
 ) -> str:
     check_items = [item for item in checks_by_name.values() if isinstance(item, dict)]
-    var_total, var_passed, var_failed, var_skipped = _status_counts(check_items)
-    var_status = _overall_status(var_total, var_passed, var_failed, var_skipped)
+    var_total, var_passed, var_warning, var_failed, var_fatal, var_skipped = (
+        _status_counts(check_items)
+    )
+    var_status = _overall_status(
+        var_total, var_passed, var_warning, var_failed, var_fatal, var_skipped
+    )
     check_rows_html = _render_check_rows(checks_by_name)
 
     return (
@@ -190,7 +217,7 @@ def _render_variable_section(
         f"<span class='group-title'>{escape(variable_name)}</span>"
         "<span class='group-stats'>"
         f"<span class='status-badge {_status_class(var_status)}'>{escape(var_status)}</span>"
-        f"<span class='count-summary'>checks={var_total} | pass={var_passed} | fail={var_failed} | skip={var_skipped}</span>"
+        f"<span class='count-summary'>checks={var_total} | pass={var_passed} | warning={var_warning} | fail={var_failed} | fatal={var_fatal} | skip={var_skipped}</span>"
         "</span>"
         "</summary>"
         "<div class='group-content'>"
@@ -240,11 +267,21 @@ def _render_scope_section(
             _render_variable_section(variable_name, filtered_variables[variable_name])
         )
 
-    scope_total, scope_passed, scope_failed, scope_skipped = _status_counts(
-        scope_items_for_counts
-    )
+    (
+        scope_total,
+        scope_passed,
+        scope_warning,
+        scope_failed,
+        scope_fatal,
+        scope_skipped,
+    ) = _status_counts(scope_items_for_counts)
     scope_status = _overall_status(
-        scope_total, scope_passed, scope_failed, scope_skipped
+        scope_total,
+        scope_passed,
+        scope_warning,
+        scope_failed,
+        scope_fatal,
+        scope_skipped,
     )
 
     return (
@@ -253,7 +290,7 @@ def _render_scope_section(
         f"<span class='group-title'>{escape(_scope_label(data_scope))}</span>"
         "<span class='group-stats'>"
         f"<span class='status-badge {_status_class(scope_status)}'>{escape(scope_status)}</span>"
-        f"<span class='count-summary'>checks={scope_total} | pass={scope_passed} | fail={scope_failed} | skip={scope_skipped}</span>"
+        f"<span class='count-summary'>checks={scope_total} | pass={scope_passed} | warning={scope_warning} | fail={scope_failed} | fatal={scope_fatal} | skip={scope_skipped}</span>"
         "</span>"
         "</summary>"
         "<div class='group-content'>"
@@ -292,18 +329,20 @@ def _render_dataset_section(dataset_html: str | None) -> str:
 
 def _render_summary_items(summary: dict[str, Any], checks: list[Any]) -> str:
     header_rows = [
-        ("Overall status", str(summary.get("overall_status", "unknown"))),
+        ("Overall", str(summary.get("overall_status", "unknown"))),
         ("Checks run", str(summary.get("checks_run", 0))),
         ("Passed", str(summary.get("passed", 0))),
+        ("Warnings", str(summary.get("warnings", 0))),
         ("Skipped", str(summary.get("skipped", 0))),
         ("Failed", str(summary.get("failed", 0))),
+        ("Fatal", str(summary.get("fatal", 0))),
     ]
 
     summary_items: list[str] = []
     for key, value in header_rows:
         value_text = str(value)
         classes = "summary-item"
-        if key == "Overall status":
+        if key == "Overall":
             classes += " summary-item-status"
             value_html = (
                 f"<span class='status-badge {_status_class(value_text)}'>"
