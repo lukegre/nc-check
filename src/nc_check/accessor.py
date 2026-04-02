@@ -47,16 +47,18 @@ class CheckAccessor:
     def _make_suite_method(
         self, suite: CheckSuite
     ) -> Callable[
-        [Literal["html", "json"], str | PathLike[str] | None], dict | HTML | str | None
+        [Literal["html", "json", "dict"], str | PathLike[str] | None, bool],
+        dict | HTML | str | None,
     ]:
         method_name = self._suite_method_name(suite.name)
 
         def method(
-            format: Literal["html", "json"] = "html",
+            format: Literal["html", "json", "dict"] = "html",
             report_fname: str | PathLike[str] | None = None,
+            apply_fixes: bool = False,
         ) -> dict | HTML | str | None:
             canonical = CanonicalDataset.from_xarray(self._obj)
-            report = suite.run(canonical)
+            report = suite.run(canonical, apply_fixes=apply_fixes)
             if format == "json":
                 return report.to_json(report_fname=report_fname)
             elif format == "dict":
@@ -67,7 +69,7 @@ class CheckAccessor:
                 raise ValueError(f"Unsupported format: {format}")
 
         method.__name__ = method_name
-        method.__doc__ = f"Run the '{suite.name}' check suite and return HTML report."
+        method.__doc__ = f"Run the '{suite.name}' check suite and optionally apply fixes before returning a report."
         return method
 
     def __dir__(self) -> list[str]:

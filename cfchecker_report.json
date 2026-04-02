@@ -1,0 +1,277 @@
+{
+  "suite_name": "cfchecker_report",
+  "checks": [
+    {
+      "name": "cfchecker.preprocess.removed_string_coords[dataset:dataset]",
+      "status": "skipped",
+      "info": "Removed/replaced non-numeric coordinates before cfchecker run: Region",
+      "details": {
+        "data_scope": "dataset",
+        "scope_item": "dataset",
+        "removed_or_replaced_coords": [
+          "Region"
+        ]
+      }
+    },
+    {
+      "name": "cfchecker.warning.2_6_1.1[dataset:dataset]",
+      "status": "skipped",
+      "info": "No 'Conventions' attribute present",
+      "details": {
+        "data_scope": "dataset",
+        "scope_item": "dataset",
+        "cfchecker_level": "WARNING",
+        "cfchecker_code": "2.6.1"
+      }
+    },
+    {
+      "name": "cfchecker.error.3_3.1[data_vars:sfco2]",
+      "status": "failed",
+      "info": "Invalid syntax for 'standard_name' attribute: 'Sea surface fCO2'",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "sfco2",
+        "cfchecker_level": "ERROR",
+        "cfchecker_code": "3.3"
+      }
+    },
+    {
+      "name": "cfchecker.error.3_3.1[data_vars:fco2atm]",
+      "status": "failed",
+      "info": "Invalid standard_name: Atmospheric",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "fco2atm",
+        "cfchecker_level": "ERROR",
+        "cfchecker_code": "3.3"
+      }
+    },
+    {
+      "name": "cfchecker.error.3_3.2[data_vars:fco2atm]",
+      "status": "failed",
+      "info": "Invalid standard_name modifier: fCO2",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "fco2atm",
+        "cfchecker_level": "ERROR",
+        "cfchecker_code": "3.3"
+      }
+    },
+    {
+      "name": "cfchecker.info.message.1[data_vars:fco2atm]",
+      "status": "passed",
+      "info": "attribute history is being used in a non-standard way",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "fco2atm",
+        "cfchecker_level": "INFO",
+        "cfchecker_code": "message"
+      }
+    },
+    {
+      "name": "cfchecker.error.3_3.1[data_vars:tos]",
+      "status": "failed",
+      "info": "Invalid syntax for 'standard_name' attribute: 'Sea surface temperature'",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "tos",
+        "cfchecker_level": "ERROR",
+        "cfchecker_code": "3.3"
+      }
+    },
+    {
+      "name": "cfchecker.error.3_1.1[data_vars:fgco2_reg]",
+      "status": "failed",
+      "info": "Invalid units: PgC yr-1",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "fgco2_reg",
+        "cfchecker_level": "ERROR",
+        "cfchecker_code": "3.1"
+      }
+    },
+    {
+      "name": "cfchecker.info.3_1.1[data_vars:mask_sfc]",
+      "status": "passed",
+      "info": "No units attribute set.  Please consider adding a units attribute for completeness.",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "mask_sfc",
+        "cfchecker_level": "INFO",
+        "cfchecker_code": "3.1"
+      }
+    },
+    {
+      "name": "cfchecker.warning.3.1[data_vars:Region]",
+      "status": "skipped",
+      "info": "No standard_name or long_name attribute specified",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "Region",
+        "cfchecker_level": "WARNING",
+        "cfchecker_code": "3"
+      }
+    },
+    {
+      "name": "cfchecker.warning.3_1.1[data_vars:Region]",
+      "status": "skipped",
+      "info": "units attribute should be present",
+      "details": {
+        "data_scope": "data_vars",
+        "scope_item": "Region",
+        "cfchecker_level": "WARNING",
+        "cfchecker_code": "3.1"
+      }
+    }
+  ],
+  "results": {
+    "dataset": {
+      "dataset": {
+        "cfchecker.warning.2_6_1.1": {
+          "name": "cfchecker.warning.2_6_1.1[dataset:dataset]",
+          "status": "skipped",
+          "info": "No 'Conventions' attribute present",
+          "details": {
+            "data_scope": "dataset",
+            "scope_item": "dataset",
+            "cfchecker_level": "WARNING",
+            "cfchecker_code": "2.6.1"
+          }
+        },
+        "cfchecker.preprocess.removed_string_coords": {
+          "name": "cfchecker.preprocess.removed_string_coords[dataset:dataset]",
+          "status": "skipped",
+          "info": "Removed/replaced non-numeric coordinates before cfchecker run: Region",
+          "details": {
+            "data_scope": "dataset",
+            "scope_item": "dataset",
+            "removed_or_replaced_coords": [
+              "Region"
+            ]
+          }
+        }
+      }
+    },
+    "data_vars": {
+      "sfco2": {
+        "cfchecker.error.3_3.1": {
+          "name": "cfchecker.error.3_3.1[data_vars:sfco2]",
+          "status": "failed",
+          "info": "Invalid syntax for 'standard_name' attribute: 'Sea surface fCO2'",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "sfco2",
+            "cfchecker_level": "ERROR",
+            "cfchecker_code": "3.3"
+          }
+        }
+      },
+      "fco2atm": {
+        "cfchecker.error.3_3.1": {
+          "name": "cfchecker.error.3_3.1[data_vars:fco2atm]",
+          "status": "failed",
+          "info": "Invalid standard_name: Atmospheric",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "fco2atm",
+            "cfchecker_level": "ERROR",
+            "cfchecker_code": "3.3"
+          }
+        },
+        "cfchecker.error.3_3.2": {
+          "name": "cfchecker.error.3_3.2[data_vars:fco2atm]",
+          "status": "failed",
+          "info": "Invalid standard_name modifier: fCO2",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "fco2atm",
+            "cfchecker_level": "ERROR",
+            "cfchecker_code": "3.3"
+          }
+        },
+        "cfchecker.info.message.1": {
+          "name": "cfchecker.info.message.1[data_vars:fco2atm]",
+          "status": "passed",
+          "info": "attribute history is being used in a non-standard way",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "fco2atm",
+            "cfchecker_level": "INFO",
+            "cfchecker_code": "message"
+          }
+        }
+      },
+      "tos": {
+        "cfchecker.error.3_3.1": {
+          "name": "cfchecker.error.3_3.1[data_vars:tos]",
+          "status": "failed",
+          "info": "Invalid syntax for 'standard_name' attribute: 'Sea surface temperature'",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "tos",
+            "cfchecker_level": "ERROR",
+            "cfchecker_code": "3.3"
+          }
+        }
+      },
+      "fgco2_reg": {
+        "cfchecker.error.3_1.1": {
+          "name": "cfchecker.error.3_1.1[data_vars:fgco2_reg]",
+          "status": "failed",
+          "info": "Invalid units: PgC yr-1",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "fgco2_reg",
+            "cfchecker_level": "ERROR",
+            "cfchecker_code": "3.1"
+          }
+        }
+      },
+      "mask_sfc": {
+        "cfchecker.info.3_1.1": {
+          "name": "cfchecker.info.3_1.1[data_vars:mask_sfc]",
+          "status": "passed",
+          "info": "No units attribute set.  Please consider adding a units attribute for completeness.",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "mask_sfc",
+            "cfchecker_level": "INFO",
+            "cfchecker_code": "3.1"
+          }
+        }
+      },
+      "Region": {
+        "cfchecker.warning.3.1": {
+          "name": "cfchecker.warning.3.1[data_vars:Region]",
+          "status": "skipped",
+          "info": "No standard_name or long_name attribute specified",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "Region",
+            "cfchecker_level": "WARNING",
+            "cfchecker_code": "3"
+          }
+        },
+        "cfchecker.warning.3_1.1": {
+          "name": "cfchecker.warning.3_1.1[data_vars:Region]",
+          "status": "skipped",
+          "info": "units attribute should be present",
+          "details": {
+            "data_scope": "data_vars",
+            "scope_item": "Region",
+            "cfchecker_level": "WARNING",
+            "cfchecker_code": "3.1"
+          }
+        }
+      }
+    }
+  },
+  "summary": {
+    "checks_run": 11,
+    "passed": 2,
+    "skipped": 4,
+    "failed": 5,
+    "overall_status": "failed"
+  },
+  "source_file": null
+}

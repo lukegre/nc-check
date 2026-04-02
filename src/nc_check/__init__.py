@@ -3,6 +3,13 @@
 from .settings import config
 from .dataset import CanonicalDataset
 from .models import AtomicCheckResult, CheckStatus, SuiteReport
+from .suite import (
+    CheckSuite,
+    CallableCheck,
+    CallableFixCheck,
+    FixableCheck,
+    run_atomic_check,
+)
 from .plugins import (
     cf_compliance_suite,
     ocean_check_suite,
@@ -19,6 +26,11 @@ __all__ = [
     "AtomicCheckResult",
     "CheckStatus",
     "SuiteReport",
+    "CheckSuite",
+    "CallableCheck",
+    "CallableFixCheck",
+    "FixableCheck",
+    "run_atomic_check",
     "cf_compliance_suite",
     "ocean_check_suite",
     "time_cover_suite",

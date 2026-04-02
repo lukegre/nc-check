@@ -185,10 +185,24 @@ def _render_check_rows(checks_by_name: dict[str, dict[str, Any]]) -> str:
         status = escape(raw_status)
         info = escape(str(item.get("info", "")))
         details_text = _details_html(item)
+        fixed = bool(item.get("fixed", False))
+        original_status = str(item.get("original_status") or "").strip().lower()
+        fix_info = str(item.get("fix_info") or "").strip()
+        status_html = f"<span class='status-badge {status_class}'>{status}</span>"
+        if fixed:
+            status_html += "<span class='status-badge status-fixed'>fixed</span>"
+        if fix_info:
+            fix_label = "Fix"
+            if fixed and original_status:
+                fix_label = f"Fix ({original_status} → {raw_status.lower()})"
+            elif original_status:
+                fix_label = f"Fix attempt ({original_status})"
+            extra = f"<code>{escape(fix_label)}</code>: {escape(fix_info)}"
+            details_text = f"{details_text}<br>{extra}" if details_text else extra
         rows.append(
             f"<tr class='check-row {status_class}'>"
             f"<td data-label='Check'>{escape(check_name)}</td>"
-            f"<td data-label='Status'><span class='status-badge {status_class}'>{status}</span></td>"
+            f"<td data-label='Status'>{status_html}</td>"
             f"<td data-label='Info'>{info}</td>"
             f"<td data-label='Details'>{details_text}</td>"
             "</tr>"
@@ -332,6 +346,7 @@ def _render_summary_items(summary: dict[str, Any], checks: list[Any]) -> str:
         ("Overall", str(summary.get("overall_status", "unknown"))),
         ("Checks run", str(summary.get("checks_run", 0))),
         ("Passed", str(summary.get("passed", 0))),
+        ("Fixed", str(summary.get("fixed", 0))),
         ("Warnings", str(summary.get("warnings", 0))),
         ("Skipped", str(summary.get("skipped", 0))),
         ("Failed", str(summary.get("failed", 0))),

@@ -5,8 +5,10 @@ import xarray as xr
 
 import nc_check
 import nc_check.plugins.cfchecker_report as cfchecker_report_plugin
+from nc_check.dataset import CanonicalDataset
 from nc_check.models import AtomicCheckResult, CheckStatus
-from nc_check.suite import CallableCheck
+from nc_check.plugins.cf_compliance import cf_compliance_suite
+from nc_check.suite import CallableCheck, CallableFixCheck, FixOutcome
 
 
 def _valid_dataset() -> xr.Dataset:
@@ -19,6 +21,119 @@ def _valid_dataset() -> xr.Dataset:
         },
         attrs={"Conventions": "CF-1.12"},
     )
+
+
+def test_fixable_check_applies_fix_and_marks_result_fixed() -> None:
+    raw = _valid_dataset()
+    raw["temp"].attrs["units"] = "Kelvin"
+    ds = CanonicalDataset.from_xarray(raw)
+
+    def units_check(data: xr.DataArray) -> AtomicCheckResult:
+        units = str(data.attrs.get("units", "")).strip()
+        if units == "kelvin":
+            return AtomicCheckResult.passed_result(name="demo.units", info="ok")
+        return AtomicCheckResult.warn_result(
+            name="demo.units",
+            info="units should be lowercase kelvin",
+            details={"actual": units},
+        )
+
+    def units_fix(dataset: CanonicalDataset, scope_item: str | None) -> FixOutcome:
+        assert scope_item == "temp"
+        fixed = dataset.copy(deep=False)
+        fixed["temp"].attrs = dict(fixed["temp"].attrs)
+        fixed["temp"].attrs["units"] = "kelvin"
+        return FixOutcome.applied_result(
+            data=fixed,
+            info="Normalized temp units to lowercase kelvin.",
+        )
+
+    suite = nc_check.CheckSuite(
+        name="demo_fix",
+        checks=[
+            CallableFixCheck(
+                name="demo.units",
+                data_scope="data_vars",
+                variables=["temp"],
+                plugin="demo",
+                fn=units_check,
+                fix_fn=units_fix,
+            )
+        ],
+    )
+
+    report = suite.run(ds, apply_fixes=True)
+
+    assert report.summary.checks_run == 1
+    assert report.summary.passed == 1
+    assert report.summary.fixed == 1
+    assert report.checks[0].status == CheckStatus.passed
+    assert report.checks[0].fixed is True
+    assert report.checks[0].original_status == CheckStatus.warning
+    assert report.checks[0].fix_info == "Normalized temp units to lowercase kelvin."
+
+
+def test_fixable_check_does_not_apply_fix_in_check_only_mode() -> None:
+    raw = _valid_dataset()
+    raw["temp"].attrs["units"] = "Kelvin"
+    ds = CanonicalDataset.from_xarray(raw)
+
+    def units_check(data: xr.DataArray) -> AtomicCheckResult:
+        units = str(data.attrs.get("units", "")).strip()
+        if units == "kelvin":
+            return AtomicCheckResult.passed_result(name="demo.units", info="ok")
+        return AtomicCheckResult.warn_result(name="demo.units", info="needs fix")
+
+    def units_fix(dataset: CanonicalDataset, scope_item: str | None) -> FixOutcome:
+        fixed = dataset.copy(deep=False)
+        fixed["temp"].attrs = dict(fixed["temp"].attrs)
+        fixed["temp"].attrs["units"] = "kelvin"
+        return FixOutcome.applied_result(data=fixed, info="fixed")
+
+    suite = nc_check.CheckSuite(
+        name="demo_fix_off",
+        checks=[
+            CallableFixCheck(
+                name="demo.units",
+                data_scope="data_vars",
+                variables=["temp"],
+                plugin="demo",
+                fn=units_check,
+                fix_fn=units_fix,
+            )
+        ],
+    )
+
+    report = suite.run(ds, apply_fixes=False)
+
+    assert report.summary.fixed == 0
+    assert report.checks[0].status == CheckStatus.warning
+    assert report.checks[0].fixed is False
+    assert report.checks[0].fix_info is None
+
+
+def test_cf_compliance_fix_mode_repairs_safe_metadata() -> None:
+    raw = xr.Dataset(
+        data_vars={"temp": (("time", "lat", "lon"), np.ones((1, 1, 1)))},
+        coords={
+            "time": np.array(["2024-01-01"], dtype="datetime64[ns]"),
+            "lat": ("lat", [0.0], {"units": "degree_north"}),
+            "lon": ("lon", [0.0], {}),
+        },
+        attrs={},
+    )
+    ds = CanonicalDataset.from_xarray(raw)
+
+    report = cf_compliance_suite.run(ds, apply_fixes=True)
+    checks = {item.name: item for item in report.checks}
+
+    assert checks["CF conventions[dataset:dataset]"].status == CheckStatus.passed
+    assert checks["CF conventions[dataset:dataset]"].fixed is True
+    assert checks["Latitude units[coords:lat]"].status == CheckStatus.passed
+    assert checks["Latitude units[coords:lat]"].fixed is True
+    assert checks["Longitude units[coords:lon]"].status == CheckStatus.passed
+    assert checks["Longitude units[coords:lon]"].fixed is True
+    assert report.summary.fixed >= 3
 
 
 def test_atomic_check_core_function_handles_exceptions() -> None:

@@ -26,7 +26,7 @@ _CANONICAL_COORD_NAMES = {"time", "lat", "lon"}
 
 
 class CheckSuiteCFchecker(CheckSuite):
-    def run(self, dataset: xr.Dataset) -> SuiteReport:
+    def run(self, dataset: xr.Dataset, *, apply_fixes: bool = False) -> SuiteReport:
         return build_cfchecker_suite_report(dataset)
 
 
@@ -144,7 +144,10 @@ def _messages_from_result(result: Any) -> list[tuple[str, str, str, str]]:
 def _summary_from_checks(checks: list[AtomicCheckResult]) -> SuiteSummary:
     passed = sum(1 for check in checks if check.status == CheckStatus.passed)
     skipped = sum(1 for check in checks if check.status == CheckStatus.skipped)
+    warnings = sum(1 for check in checks if check.status == CheckStatus.warning)
     failed = sum(1 for check in checks if check.status == CheckStatus.failed)
+    fatal = sum(1 for check in checks if check.status == CheckStatus.fatal)
+    fixed = sum(1 for check in checks if check.fixed)
 
     if failed > 0:
         overall = CheckStatus.failed
@@ -157,8 +160,11 @@ def _summary_from_checks(checks: list[AtomicCheckResult]) -> SuiteSummary:
         checks_run=len(checks),
         passed=passed,
         skipped=skipped,
+        warnings=warnings,
         failed=failed,
+        fatal=fatal,
         overall_status=overall,
+        fixed=fixed,
     )
 
 

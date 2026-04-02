@@ -16,12 +16,15 @@ class CheckStatus(str, Enum):
     fatal = "fatal"
 
 
-@dataclass(frozen=True)
+@dataclass
 class AtomicCheckResult:
     name: str
     status: CheckStatus
     info: str
     details: dict[str, Any] = field(default_factory=dict)
+    fixed: bool = False
+    original_status: CheckStatus | None = None
+    fix_info: str | None = None
 
     @classmethod
     def skipped_result(
@@ -104,10 +107,15 @@ class AtomicCheckResult:
             "status": self.status.value,
             "info": self.info,
             "details": self.details,
+            "fixed": self.fixed,
+            "original_status": (
+                None if self.original_status is None else self.original_status.value
+            ),
+            "fix_info": self.fix_info,
         }
 
 
-@dataclass(frozen=True)
+@dataclass
 class SuiteSummary:
     checks_run: int
     passed: int
@@ -116,6 +124,7 @@ class SuiteSummary:
     failed: int
     fatal: int
     overall_status: CheckStatus
+    fixed: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,11 +134,12 @@ class SuiteSummary:
             "warnings": self.warnings,
             "failed": self.failed,
             "fatal": self.fatal,
+            "fixed": self.fixed,
             "overall_status": self.overall_status.value,
         }
 
 
-@dataclass(frozen=True)
+@dataclass
 class SuiteReport:
     suite_name: str
     checks: list[AtomicCheckResult]

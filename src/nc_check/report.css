@@ -9,6 +9,8 @@
   --line:#d7e1ea;
   --surface-soft:#f8fbfd;
   --accent:#0b7285;
+  --fixed-bg:#d8ecff;
+  --fixed-text:#145ea8;
   --pass-bg:#daf6e5;
   --pass-text:#0d6331;
   --fail-bg:#ffd0d0;
@@ -85,7 +87,7 @@ h1{
   margin:0;
   padding:1rem;
   display:grid;
-  grid-template-columns:repeat(7,minmax(0,1fr));
+  grid-template-columns:repeat(8,minmax(0,1fr));
   gap:.7rem;
 }
 .summary-item{
@@ -204,6 +206,7 @@ tbody tr:last-child td,tbody tr:last-child th{border-bottom:0;}
 .status-warning{background:var(--warn-bg);color:var(--warn-text);}
 .status-fatal{background:var(--fatal-bg);color:var(--fatal-text);}
 .status-unknown{background:var(--unknown-bg);color:var(--unknown-text);}
+.status-fixed{background:var(--fixed-bg);color:var(--fixed-text);}
 code{
   font-family:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
   background:#edf4fa;

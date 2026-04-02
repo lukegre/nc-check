@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, Literal
@@ -16,26 +16,104 @@ DataScope = Literal["dims", "coords", "dataset", "data_vars"]
 DataArrayCheckFn = Callable[[xr.DataArray], AtomicCheckResult]
 DatasetCheckFn = Callable[[CanonicalDataset], AtomicCheckResult]
 AtomicCheckFn = DataArrayCheckFn | DatasetCheckFn
+FixCheckFn = Callable[[CanonicalDataset, str | None], "FixOutcome"]
 
 
-@dataclass(frozen=True)
+@dataclass
+class FixOutcome:
+    data: xr.Dataset | CanonicalDataset
+    applied: bool
+    info: str
+    details: dict[str, object] = field(default_factory=dict)
+
+    @classmethod
+    def applied_result(
+        cls,
+        *,
+        data: xr.Dataset | CanonicalDataset,
+        info: str,
+        details: dict[str, object] | None = None,
+    ) -> "FixOutcome":
+        return cls(
+            data=data,
+            applied=True,
+            info=info,
+            details={} if details is None else dict(details),
+        )
+
+    @classmethod
+    def skipped_result(
+        cls,
+        *,
+        data: xr.Dataset | CanonicalDataset,
+        info: str,
+        details: dict[str, object] | None = None,
+    ) -> "FixOutcome":
+        return cls(
+            data=data,
+            applied=False,
+            info=info,
+            details={} if details is None else dict(details),
+        )
+
+
+@dataclass
 class CheckDefinition:
     name: str
     data_scope: DataScope
     variables: list[str] | None = None
+    plugin: str | None = None
 
-    def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
+    def check(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
         raise NotImplementedError
 
+    def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
+        return self.check(data)
 
-@dataclass(frozen=True)
+    def has_fix(self) -> bool:
+        return False
+
+    def fix(
+        self, dataset: CanonicalDataset, *, scope_item: str | None = None
+    ) -> FixOutcome:
+        raise NotImplementedError("This check does not implement fix().")
+
+
+@dataclass
 class CallableCheck(CheckDefinition):
     fn: AtomicCheckFn | None = None
 
-    def run(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
+    def check(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
         if self.fn is None:
             raise ValueError("CallableCheck requires a callable 'fn'.")
         return self.fn(data)  # type: ignore[arg-type]  # runtime dispatch via data_scope guarantees correct type
+
+
+@dataclass
+class FixableCheck(CheckDefinition):
+    def has_fix(self) -> bool:
+        return type(self).fix is not FixableCheck.fix
+
+
+@dataclass
+class CallableFixCheck(FixableCheck):
+    fn: AtomicCheckFn | None = None
+    fix_fn: FixCheckFn | None = None
+
+    def check(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
+        if self.fn is None:
+            raise ValueError("CallableFixCheck requires a callable 'fn'.")
+        return self.fn(data)  # type: ignore[arg-type]  # runtime dispatch via data_scope guarantees correct type
+
+    def has_fix(self) -> bool:
+        return self.fix_fn is not None
+
+    def fix(
+        self, dataset: CanonicalDataset, *, scope_item: str | None = None
+    ) -> FixOutcome:
+        if self.fix_fn is None:
+            raise NotImplementedError("CallableFixCheck requires a callable 'fix_fn'.")
+        return self.fix_fn(dataset, scope_item)
 
 
 def run_atomic_check(
@@ -69,10 +147,8 @@ def run_atomic_check(
         )
 
     if scope_item is not None and "scope_item" not in result.details:
-        result = AtomicCheckResult(
-            name=result.name,
-            status=result.status,
-            info=result.info,
+        result = replace(
+            result,
             details={
                 **result.details,
                 "data_scope": definition.data_scope,
@@ -81,10 +157,9 @@ def run_atomic_check(
         )
 
     if result.name != definition.name:
-        return AtomicCheckResult(
+        return replace(
+            result,
             name=definition.name,
-            status=result.status,
-            info=result.info,
             details={**result.details, "reported_name": result.name},
         )
 
@@ -101,10 +176,13 @@ class CheckSuite:
         self.name = name
         self.checks = list(checks)
 
-    def run(self, dataset: CanonicalDataset) -> SuiteReport:
+    def run(
+        self, dataset: CanonicalDataset, *, apply_fixes: bool = False
+    ) -> SuiteReport:
         assert isinstance(dataset, CanonicalDataset), (
             "dataset must be a CanonicalDataset"
         )
+        working_dataset = _copy_canonical_dataset(dataset) if apply_fixes else dataset
         results: list[AtomicCheckResult] = []
         hierarchy: dict[str, dict[str, dict[str, AtomicCheckResult]]] = {}
 
@@ -117,14 +195,15 @@ class CheckSuite:
             if not scope_definitions:
                 continue
 
-            scope_targets = _scope_targets(dataset, data_scope)
-            if not scope_targets:
+            scope_items = _scope_item_names(working_dataset, data_scope)
+            if not scope_items:
                 for definition in scope_definitions:
                     results.append(_empty_scope_targets(definition))
                 continue
 
             scope_hierarchy: dict[str, dict[str, AtomicCheckResult]] = {}
-            for scope_item, data in scope_targets:
+            for scope_item in scope_items:
+                data = _scope_target(working_dataset, data_scope, scope_item)
                 variable_results: dict[str, AtomicCheckResult] = {}
                 for definition in scope_definitions:
                     if (
@@ -139,10 +218,18 @@ class CheckSuite:
                         fn=definition.run,
                     )
                     result = run_atomic_check(
-                        _with_dataset_attrs(data, dataset.attrs),
+                        _with_dataset_attrs(data, working_dataset.attrs),
                         scoped_definition,
                         scope_item=scope_item,
                     )
+                    if apply_fixes and definition.has_fix():
+                        working_dataset, result = _run_fix_cycle(
+                            working_dataset,
+                            definition,
+                            data_scope=data_scope,
+                            scope_item=scope_item,
+                            initial_result=result,
+                        )
                     results.append(result)
                     variable_results[definition.name] = result
                 scope_hierarchy[str(scope_item)] = variable_results
@@ -154,8 +241,8 @@ class CheckSuite:
             checks=results,
             summary=summary,
             results=hierarchy,
-            source_file=_dataset_source_file(dataset),
-            _dataset_html=_dataset_repr_html(dataset),
+            source_file=_dataset_source_file(working_dataset),
+            _dataset_html=_dataset_repr_html(working_dataset),
         )
 
     def __repr__(self) -> str:
@@ -181,6 +268,7 @@ def _summary_from_results(results: list[AtomicCheckResult]) -> SuiteSummary:
     warnings = sum(1 for result in results if result.status == CheckStatus.warning)
     failed = sum(1 for result in results if result.status == CheckStatus.failed)
     fatal = sum(1 for result in results if result.status == CheckStatus.fatal)
+    fixed = sum(1 for result in results if result.fixed)
 
     if failed > 0:
         overall = CheckStatus.failed
@@ -196,7 +284,98 @@ def _summary_from_results(results: list[AtomicCheckResult]) -> SuiteSummary:
         warnings=warnings,
         failed=failed,
         fatal=fatal,
+        fixed=fixed,
         overall_status=overall,
+    )
+
+
+def _copy_canonical_dataset(dataset: CanonicalDataset) -> CanonicalDataset:
+    return _canonicalize_dataset(dataset.copy(deep=True))
+
+
+def _canonicalize_dataset(dataset: xr.Dataset | CanonicalDataset) -> CanonicalDataset:
+    if isinstance(dataset, CanonicalDataset):
+        return dataset
+    return CanonicalDataset.from_xarray(dataset, rename_aliases=False, strict=False)
+
+
+def _run_fix_cycle(
+    dataset: CanonicalDataset,
+    definition: CheckDefinition,
+    *,
+    data_scope: DataScope,
+    scope_item: str,
+    initial_result: AtomicCheckResult,
+) -> tuple[CanonicalDataset, AtomicCheckResult]:
+    if initial_result.status not in {CheckStatus.warning, CheckStatus.failed}:
+        return dataset, initial_result
+
+    try:
+        outcome = definition.fix(dataset, scope_item=scope_item)
+    except NotImplementedError:
+        return dataset, initial_result
+    except Exception as exc:
+        return dataset, _annotate_fix_result(
+            initial_result,
+            fixed=False,
+            original_status=initial_result.status,
+            fix_info=f"Fix raised {type(exc).__name__}: {exc}",
+        )
+
+    if not isinstance(outcome, FixOutcome):
+        return dataset, _annotate_fix_result(
+            initial_result,
+            fixed=False,
+            original_status=initial_result.status,
+            fix_info="Fix returned an invalid result type.",
+        )
+
+    next_dataset = _canonicalize_dataset(outcome.data)
+    if not outcome.applied:
+        return next_dataset, _annotate_fix_result(
+            initial_result,
+            fixed=False,
+            original_status=initial_result.status,
+            fix_info=outcome.info,
+        )
+
+    refreshed = _scope_target(next_dataset, data_scope, scope_item)
+    scoped_definition = CallableCheck(
+        name=f"{definition.name}[{data_scope}:{scope_item}]",
+        data_scope=data_scope,
+        variables=definition.variables,
+        plugin=definition.plugin,
+        fn=definition.run,
+    )
+    post_result = run_atomic_check(
+        _with_dataset_attrs(refreshed, next_dataset.attrs),
+        scoped_definition,
+        scope_item=scope_item,
+    )
+    was_fixed = (
+        initial_result.status in {CheckStatus.warning, CheckStatus.failed}
+        and post_result.status == CheckStatus.passed
+    )
+    return next_dataset, _annotate_fix_result(
+        post_result,
+        fixed=was_fixed,
+        original_status=initial_result.status,
+        fix_info=outcome.info,
+    )
+
+
+def _annotate_fix_result(
+    result: AtomicCheckResult,
+    *,
+    fixed: bool,
+    original_status: CheckStatus,
+    fix_info: str,
+) -> AtomicCheckResult:
+    return replace(
+        result,
+        fixed=fixed,
+        original_status=original_status,
+        fix_info=fix_info,
     )
 
 
@@ -211,6 +390,43 @@ def _with_dataset_attrs(
     attrs.update(data.attrs)
     enriched.attrs = attrs
     return enriched
+
+
+def _scope_item_names(dataset: CanonicalDataset, data_scope: DataScope) -> list[str]:
+    if data_scope == "dataset":
+        return ["dataset"]
+    if data_scope == "data_vars":
+        return [str(name) for name in dataset.data_vars]
+    if data_scope == "coords":
+        return [str(name) for name in dataset.coords]
+    if data_scope == "dims":
+        return [str(name) for name in dataset.sizes]
+    raise ValueError(f"Invalid data_scope '{data_scope}'.")
+
+
+def _scope_target(
+    dataset: CanonicalDataset, data_scope: DataScope, scope_item: str
+) -> xr.DataArray | CanonicalDataset:
+    if data_scope == "dataset":
+        return dataset
+
+    if data_scope == "data_vars":
+        return dataset[scope_item]
+
+    if data_scope == "coords":
+        return dataset.coords[scope_item]
+
+    if data_scope == "dims":
+        if scope_item in dataset.coords:
+            return dataset.coords[scope_item]
+        size = int(dataset.sizes[scope_item])
+        return xr.DataArray(
+            np.arange(size),
+            dims=(scope_item,),
+            name=scope_item,
+        )
+
+    raise ValueError(f"Invalid data_scope '{data_scope}'.")
 
 
 def _scope_targets(

@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import dataclass, replace
 import re
 
 import numpy as np
 import xarray as xr
 
 from ..models import AtomicCheckResult
-from ..suite import CallableCheck, CheckSuite
+from ..dataset import CanonicalDataset
+from ..suite import (
+    CallableCheck,
+    CallableFixCheck,
+    CheckSuite,
+    FixOutcome,
+    FixableCheck,
+    DataScope,
+    CheckStatus,
+)
 
 _CF_SUITE_NAME = "CF Compliance"
+_DEFAULT_CF_CONVENTIONS = "CF-1.12"
 
 _TIME_UNITS_RE = re.compile(
     r"^\s*(seconds?|minutes?|hours?|days?|months?|years?)\s+since\s+.+$",
@@ -113,66 +125,6 @@ def _coordinate_variables_linked_check(data: xr.DataArray) -> AtomicCheckResult:
     return AtomicCheckResult.passed_result(
         name="cf.coordinate_variables_linked",
         info="Dimension and coordinates-attribute coordinate links are valid.",
-    )
-
-
-def _latitude_units_check(data: xr.DataArray) -> AtomicCheckResult:
-    coord = data.coords.get("lat")
-    if coord is None:
-        return AtomicCheckResult.failed_result(
-            name="cf.latitude_units",
-            info="Latitude coordinate is missing.",
-            details={"expected": "degrees_north"},
-        )
-
-    units = str(coord.attrs.get("units", "")).strip().lower()
-    if units == "degrees_north":
-        return AtomicCheckResult.passed_result(
-            name="cf.latitude_units",
-            info="Latitude units are degrees_north.",
-        )
-
-    if not units:
-        return AtomicCheckResult.warn_result(
-            name="cf.latitude_units",
-            info="Latitude coordinate is missing units.",
-            details={"expected": "degrees_north"},
-        )
-
-    return AtomicCheckResult.warn_result(
-        name="cf.latitude_units",
-        info="Latitude units should be degrees_north.",
-        details={"expected": "degrees_north", "actual": units},
-    )
-
-
-def _longitude_units_check(data: xr.DataArray) -> AtomicCheckResult:
-    coord = data.coords.get("lon")
-    if coord is None:
-        return AtomicCheckResult.failed_result(
-            name="cf.longitude_units",
-            info="Longitude coordinate is missing.",
-            details={"expected": "degrees_east"},
-        )
-
-    units = str(coord.attrs.get("units", "")).strip().lower()
-    if units == "degrees_east":
-        return AtomicCheckResult.passed_result(
-            name="cf.longitude_units",
-            info="Longitude units are degrees_east.",
-        )
-
-    if not units:
-        return AtomicCheckResult.warn_result(
-            name="cf.longitude_units",
-            info="Longitude coordinate is missing units.",
-            details={"expected": "degrees_east"},
-        )
-
-    return AtomicCheckResult.warn_result(
-        name="cf.longitude_units",
-        info="Longitude units should be degrees_east.",
-        details={"expected": "degrees_east", "actual": units},
     )
 
 
@@ -630,10 +582,9 @@ def _feature_type_check(data: xr.DataArray) -> AtomicCheckResult:
     )
 
 
-def _attributes_valid_types_only(data: xr.DataArray) -> AtomicCheckResult:
-    """
-    Check that all attributes are of types that can be represented in netCDF files.
-    """
+@dataclass(kw_only=True)
+class ValidAttributesTypesCheck(FixableCheck):
+    name: str = "Valid attributes types"
     valid_types = (
         str,
         int,
@@ -643,25 +594,49 @@ def _attributes_valid_types_only(data: xr.DataArray) -> AtomicCheckResult:
         np.bool_,
         np.integer,
         np.floating,
-        list,
         np.ndarray,
     )
 
-    invalid_attrs = {}
-    for attr_name, attr_value in data.attrs.items():
-        if not isinstance(attr_value, valid_types):
-            invalid_attrs[str(attr_name)] = str(type(attr_value))
+    def check(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
+        """
+        Check that all attributes are of types that can be represented in netCDF files.
+        """
 
-    if invalid_attrs:
-        return AtomicCheckResult.fatal_result(
-            name="cf.attributes_valid_types_only",
-            info="Some attributes have types that may not be representable in netCDF files.",
-            details=invalid_attrs,
-        )
-    else:
-        return AtomicCheckResult.passed_result(
-            name="cf.attributes_valid_types_only",
-            info="All attributes are of types that can be represented in netCDF files.",
+        invalid_attrs = {}
+        for attr_name, attr_value in data.attrs.items():
+            if not isinstance(attr_value, self.valid_types):
+                invalid_attrs[str(attr_name)] = str(type(attr_value))
+
+        if invalid_attrs:
+            return AtomicCheckResult.fatal_result(
+                name="cf.attributes_valid_types_only",
+                info="Some attributes have types that may not be representable in netCDF files.",
+                details=invalid_attrs,
+            )
+        else:
+            return AtomicCheckResult.passed_result(
+                name="cf.attributes_valid_types_only",
+                info="All attributes are of types that can be represented in netCDF files.",
+            )
+
+    def fix(
+        self, dataset: xr.DataArray | CanonicalDataset, *, scope_item: str | None = None
+    ) -> FixOutcome:
+        "Turns any badly formatted attributes into strings, to ensure they can be encoded in netCDF files."
+
+        fixed = dataset.copy(deep=False)
+        for attr_name, attr_value in fixed.attrs.items():
+            if not isinstance(attr_value, self.valid_types):
+                fixed.attrs[attr_name] = str(attr_value)
+
+        return FixOutcome.applied_result(
+            data=fixed,
+            info="Attributes with invalid types were converted to strings.",
+            details={
+                attr_name: str(type(attr_value))
+                for attr_name, attr_value in dataset.attrs.items()
+                if not isinstance(attr_value, self.valid_types)
+            },
         )
 
 
@@ -697,16 +672,93 @@ def _coord_is_monotonic(data: xr.DataArray) -> AtomicCheckResult:
     )
 
 
+def _conventions_fix(data: xr.Dataset, _scope_item: str | None) -> FixOutcome:
+    fixed = data.copy(deep=False)
+    conventions = str(fixed.attrs.get("Conventions", "")).strip()
+    tokens = [token.strip() for token in conventions.split(",") if token.strip()]
+
+    if any(token.upper().startswith("CF-") for token in tokens):
+        return FixOutcome.skipped_result(
+            data=fixed,
+            info="Conventions already includes a CF token.",
+        )
+
+    updated_tokens = tokens or []
+    updated_tokens.append(_DEFAULT_CF_CONVENTIONS)
+    fixed.attrs = dict(fixed.attrs)
+    fixed.attrs["Conventions"] = ", ".join(updated_tokens)
+    return FixOutcome.applied_result(
+        data=fixed,
+        info=f"Set Conventions to include {_DEFAULT_CF_CONVENTIONS}.",
+        details={"conventions": fixed.attrs["Conventions"]},
+    )
+
+
+@dataclass(kw_only=True)
+class CoordinateUnitsCheck(FixableCheck):
+    coord_name: str
+    expected_units: str
+    result_name: str = "cf.coordinate_units"
+    data_scope: DataScope = "coords"
+
+    def __post_init__(self):
+        if self.result_name == "cf.coordinate_units":
+            object.__setattr__(self, "result_name", f"cf.{self.coord_name}_units")
+
+    def check(self, data: xr.DataArray | CanonicalDataset) -> AtomicCheckResult:
+        result = AtomicCheckResult(
+            name=self.result_name,
+            status=CheckStatus.warning,
+            info="",
+        )
+
+        units = str(data.attrs.get("units", "")).strip().lower()
+
+        if units == self.expected_units:
+            return replace(
+                result,
+                status=CheckStatus.passed,
+                info=f"{self.coord_name} units are {self.expected_units}.",
+            )
+
+        if not units:
+            return replace(
+                result,
+                info=f"{self.coord_name} coordinate is missing units.",
+                details={"expected": self.expected_units},
+            )
+
+        return replace(
+            result,
+            info=f"{self.coord_name} units should be {self.expected_units}.",
+            details={"expected": self.expected_units, "actual": units},
+        )
+
+    def fix(
+        self,
+        dataset: CanonicalDataset,
+        *,
+        scope_item: str | None = None,
+    ) -> FixOutcome:
+        return _coordinate_units_fix(
+            dataset,
+            scope_item=scope_item,
+            coord_name=self.coord_name,
+            expected_units=self.expected_units,
+        )
+
+
 ##################################
 # CheckSuite for CF compliance   #
 ##################################
 cf_compliance_suite = CheckSuite(
     name=_CF_SUITE_NAME,
     checks=[
-        CallableCheck(
+        CallableFixCheck(
             name="CF conventions",
             data_scope="dataset",
             fn=_conventions_check,
+            fix_fn=_conventions_fix,
         ),
         CallableCheck(
             name="Spatial coodinates present",
@@ -718,21 +770,19 @@ cf_compliance_suite = CheckSuite(
             data_scope="coords",
             fn=_coord_is_monotonic,
         ),
-        CallableCheck(
-            name="Valid attributes types",
-            data_scope="dataset",
-            fn=_attributes_valid_types_only,
-        ),
-        CallableCheck(
-            name="Valid attributes types",
-            data_scope="coords",
-            fn=_attributes_valid_types_only,
-        ),
-        CallableCheck(
-            name="Valid attributes types",
-            data_scope="data_vars",
-            fn=_attributes_valid_types_only,
-        ),
+        ValidAttributesTypesCheck(data_scope="dataset"),
+        ValidAttributesTypesCheck(data_scope="coords"),
+        ValidAttributesTypesCheck(data_scope="data_vars"),
+        # CallableCheck(
+        #     name="Valid attributes types",
+        #     data_scope="coords",
+        #     fn=_attributes_valid_types_only,
+        # ),
+        # CallableCheck(
+        #     name="Valid attributes types",
+        #     data_scope="data_vars",
+        #     fn=_attributes_valid_types_only,
+        # ),
         CallableCheck(
             name="Coordinate variables linked",
             data_scope="dataset",
@@ -783,17 +833,17 @@ cf_compliance_suite = CheckSuite(
             data_scope="dataset",
             fn=_feature_type_check,
         ),
-        CallableCheck(
-            name="Latitude units",
-            data_scope="coords",
-            variables=["lat"],
-            fn=_latitude_units_check,
-        ),
-        CallableCheck(
+        CoordinateUnitsCheck(
             name="Longitude units",
-            data_scope="coords",
+            coord_name="lon",
+            expected_units="degrees_east",
             variables=["lon"],
-            fn=_longitude_units_check,
+        ),
+        CoordinateUnitsCheck(
+            name="Latitude units",
+            coord_name="lat",
+            expected_units="degrees_north",
+            variables=["lat"],
         ),
         CallableCheck(
             name="Time units",
@@ -902,3 +952,42 @@ def _looks_udunits_like(units: str) -> bool:
         return False
 
     return True
+
+
+def _coordinate_units_fix(
+    data: xr.Dataset,
+    *,
+    scope_item: str | None,
+    coord_name: str,
+    expected_units: str,
+) -> FixOutcome:
+    target_name = scope_item or coord_name
+    if target_name != coord_name:
+        return FixOutcome.skipped_result(
+            data=data,
+            info=f"Fix is only applicable to the '{coord_name}' coordinate.",
+        )
+
+    coord = data.coords.get(coord_name)
+    if coord is None:
+        return FixOutcome.skipped_result(
+            data=data,
+            info=f"Coordinate '{coord_name}' is missing; units cannot be fixed.",
+        )
+
+    fixed = data.copy(deep=False)
+    updated_attrs = deepcopy(dict(coord.attrs))
+    current_units = str(updated_attrs.get("units", "")).strip().lower()
+    if current_units == expected_units:
+        return FixOutcome.skipped_result(
+            data=fixed,
+            info=f"Coordinate '{coord_name}' already uses {expected_units}.",
+        )
+
+    updated_attrs["units"] = expected_units
+    fixed.coords[coord_name].attrs = updated_attrs
+    return FixOutcome.applied_result(
+        data=fixed,
+        info=f"Set '{coord_name}' units to {expected_units}.",
+        details={"coord": coord_name, "units": expected_units},
+    )
