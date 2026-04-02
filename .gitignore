@@ -13,3 +13,4 @@ site/
 .env
 
 *.nc
+!tests/data/*.nc
