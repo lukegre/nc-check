@@ -1,6 +1,6 @@
 # Agent Handoff Document — nc-check
 
-> **FOR NEW AGENTS**: Read this entire file before doing anything. It contains full project context, the analysis of what's wrong, and the implementation plan.
+> **FOR NEW AGENTS**: Read this entire file before doing anything. It contains full project context, current implementation status, and suggested next work.
 
 ---
 
@@ -11,7 +11,7 @@ A scientist working on the Global Carbon Budget uses this package to validate an
 - `cfchecker` has heavy/complicated deps — **the heuristic engine is the primary path**, not a fallback
 - Fixes are **metadata-only**; no data restructuring unless user explicitly asks
 - Primary format: **CMIP6**; files must be **Ferret-readable**
-- For unfixable issues: report them clearly; for fixable ones: save output to a new file (already works via `nc-comply`)
+- For unfixable issues: report them clearly; for fixable ones: save output to a new file (via `nc-comply`)
 - Ocean is the current focus; atmosphere is a future possibility
 
 ---
@@ -36,171 +36,117 @@ src/nc_check/
 │   ├── suite.py / runner.py / registry.py / defaults.py
 ├── formatting.py
 └── standard_names.py
-tests/                 # pytest, 10+ files
+tests/                 # pytest, 147 tests, 13 files
 ```
 
 **Key patterns to reuse:**
 
 | Utility | Location | Notes |
 |---------|----------|-------|
-| `_finding()` helper | `heuristic.py:115` | Use for all new findings |
-| `_axis_guesses()` | `heuristic.py:388` | Infers T/Z/Y/X from dim names/attrs |
-| `_references_from_whitespace_list()` | `heuristic.py:287` | Parses space-separated var name lists |
-| `_CF_ATTR_CASE_KEYS` | `compliance.py:63` | Dict of known CF attribute names |
-| `guess_axis_for_dim()` | `compliance.py` | Called in make_dataset_compliant |
+| `_finding()` helper | `heuristic.py` | Use for ALL new findings — keyword-only args |
+| `_axis_guesses()` | `heuristic.py` | Returns `dict[str, AxisGuess]` — axis_type is "time"/"lat"/"lon" |
+| `_references_from_whitespace_list()` | `heuristic.py` | Parses space-separated var name lists |
+| `_VALID_CALENDARS` | `heuristic.py` | frozenset of valid CF calendar values |
+| `_VERTICAL_NAMES` | `heuristic.py` | frozenset of vertical coord name candidates |
+| `_CF_ATTR_CASE_KEYS` | `compliance.py` | Tuple of known CF attribute names for case normalisation |
+| `guess_axis_for_dim()` | `heuristic.py` | Infers axis type for a dimension |
 | `CheckInfo`, `FixResult`, `CheckResult` | `core/check.py` | Pydantic models |
 
 Finding structure: `{severity, item, message, current, expected, suggested_fix, extra}`
 
 All findings stored in: `issues["global"]`, `issues["coordinates"][name]`, `issues["variables"][name]`
 
-**Fix pipeline:**
-- `make_dataset_compliant()` at `compliance.py:1161` — deep-copies dataset, applies metadata fixes, returns new dataset
-- `nc-comply` CLI at `cli.py:318` — calls above then `.to_netcdf(fname_out)`
-- `HeuristicCheck` at `heuristic.py:665` — currently has `fixable=False` hardcoded (needs fixing)
-- `Check.fix()` at `check.py:89` — currently a stub returning "No fix implemented"
+**Fix pipeline (current state — fully implemented):**
+- `make_dataset_compliant()` in `compliance.py` — deep-copies dataset, applies metadata fixes, adds `calendar="standard"` to time coords, returns new dataset
+- `HeuristicCheck.fix()` in `heuristic.py` — calls `make_dataset_compliant()`, collects unfixable items from report, returns `FixResult` with `unfixable_items` list
+- `nc-comply` CLI in `cli.py` — calls `HeuristicCheck.fix()`, writes output, prints summary, exits 1 if unfixable items
+- `FixResult.unfixable_items: list[str]` — lists `"scope:item"` strings for issues that need manual attention
+
+**Important implementation notes:**
+- For datetime64 time coordinates: `calendar` goes in `coord.encoding`, NOT `coord.attrs` (xarray conflict)
+- The `_FillValue` removal in `make_dataset_compliant()` preserves existing encoding — it does NOT wipe it
+- `HeuristicCheck.check()` sets `fixable=True`
+- Unfixable items = findings where `suggested_fix is None`
 
 ---
 
-## What's wrong (gap analysis)
+## CF compliance status
 
-### Critical gaps vs CF-1.12 + CMIP6 + Ferret
+### Implemented checks (heuristic engine)
 
-| Gap | Priority | Fixable? |
-|-----|----------|----------|
-| Cell methods not validated at all (CF §7.4) | High | No — data issue |
-| Bounds variable structure not validated (CF §7.1) | High | No — data issue |
-| Time `calendar` attribute not checked (CF §4.4.1, CMIP6) | High | Yes → add `calendar="standard"` |
-| Vertical `positive` attribute not checked (CF §4.3) | Medium | No — ambiguous direction |
-| Dimension order not checked (T,Z,Y,X — Ferret/COARDS) | Medium | No — requires data restructure |
-| CMIP6 global attributes not checked | Medium | No |
-| `HeuristicCheck.fix()` is a stub — no fixes applied | Critical | — |
-| `nc-comply` doesn't report unfixable issues | High | — |
+| Check | CF ref | Severity | Fixable? |
+|-------|--------|----------|----------|
+| `Conventions` attribute | — | WARN | Yes |
+| Coordinate attrs (standard_name, units, axis) | CF §4 | WARN | Yes |
+| Coordinate uniqueness + monotonicity | — | WARN | Yes |
+| Lat/lon range | CF §4.1–4.2 | ERROR | Yes |
+| Time units format | CF §4.4 | ERROR/WARN | Yes |
+| Time `calendar` attribute | CF §4.4.1 | WARN/ERROR | Yes → `calendar="standard"` |
+| Bounds variable structure | CF §7.1 | ERROR/WARN | No |
+| Cell methods validity | CF §7.4 | WARN/ERROR | No |
+| Vertical `positive` attribute | CF §4.3 | WARN/ERROR | No |
+| Dimension order (T,Z,Y,X) | COARDS/Ferret | WARN | No |
+| CMIP6/general recommended global attrs | CMIP6 | WARN | No |
+| Variable name CF compliance | — | ERROR | Yes |
+| Variable units/standard_name | — | WARN/ERROR | Yes |
+| Reference attrs (bounds, coordinates, etc.) | — | ERROR | Yes |
 
 ### Ferret-specific status
-- `_FillValue` on coordinate variables → **already checked** ✓
-- Missing `units` on time/lat/lon/depth → **already checked** ✓
-- Non-monotonic coordinates → **already checked** ✓
-- `calendar` attribute missing → **NOT yet checked** ✗
+
+| Issue | Status |
+|-------|--------|
+| `_FillValue` on coordinate variables | ✓ checked + fixed |
+| Missing `units` on time/lat/lon/depth | ✓ checked |
+| Non-monotonic coordinates | ✓ checked |
+| `calendar` attribute missing | ✓ checked + fixed |
+| Dimension order (T,Z,Y,X) | ✓ checked (unfixable — data restructure needed) |
 
 ---
 
-## Implementation plan
+## Suggested next work
 
-### Chunk 0 — Fix infrastructure (PREREQUISITE)
-**File**: `src/nc_check/core/check.py`
+The following are not yet implemented. Priority order for the Global Carbon Budget use case:
 
-- Add `unfixable_items: list[str] = []` field to `FixResult` Pydantic model
-- This field will list finding `item` strings detected but not auto-fixable
-- No logic changes — just data model addition
-- **Test**: `tests/test_check_models.py` — assert `FixResult.unfixable_items` defaults to `[]`
+### Ocean checks (high value)
 
----
+**1. Missing latitude bands**
+- Symmetric with existing `MissingLongitudeBandsCheck` — add `MissingLatitudeBandsCheck` in `ocean.py`
+- Same pattern: check for persistent all-NaN latitude slices across time
 
-### Chunk 1 — Deepen heuristic checks (after Chunk 0)
-**File**: `src/nc_check/checks/heuristic.py`
+**2. Physical range check (per standard_name)**
+- Add to `ocean.py` or `heuristic.py`
+- Known ranges by `standard_name`:
 
-Add using the existing `_finding()` pattern:
+  | standard_name | Warn range | Error range |
+  |---|---|---|
+  | `sea_water_temperature` | −2 to 35 °C | < −5 or > 50 |
+  | `sea_surface_temperature` | −2 to 35 °C | < −5 or > 50 |
+  | `sea_water_salinity` | 0 to 42 PSU | < −1 or > 50 |
+  | `sea_water_potential_density` | 900 to 1100 kg/m³ | outside 800–1200 |
 
-**1. Bounds structure** (CF §7.1)
-- For each variable with a `bounds` attr: check shape is `(N, 2)`, check values bracket coordinate
-- Severity: ERROR for wrong shape, WARN for values not bracketing
-- `suggested_fix: None`
+**3. Depth coordinate units validation**
+- Extend the existing `_vertical_positive_findings()` in `heuristic.py`
+- `units` should be `m`; WARN for `km`, ERROR if missing on a named depth coord
+- Values should be non-negative when `positive="down"`
 
-**2. Cell methods** (CF §7.4)
-- Parse `cell_methods` string, validate method names against CF-allowed list:
-  `point`, `sum`, `mean`, `maximum`, `minimum`, `mid_range`, `standard_deviation`,
-  `variance`, `mode`, `median`, `maximum_absolute_value`, `minimum_absolute_value`,
-  `mean_absolute_value`, `mean_of_upper_decile`
-- Validate referenced dimension names exist in the dataset
-- Severity: WARN for unknown method, ERROR for non-existent dimension
-- `suggested_fix: None`
+**4. `grid_mapping` variable completeness**
+- If `grid_mapping` attr is set, check referenced variable has `grid_mapping_name`
+- If lat/lon are 2D (curvilinear/tripolar), WARN that `grid_mapping` is strongly recommended
 
-**3. Time calendar attribute** (CF §4.4.1 + CMIP6)
-- For time coordinates: check `calendar` attr is present
-- Valid values: `standard`, `gregorian`, `proleptic_gregorian`, `noleap`, `365_day`,
-  `all_leap`, `366_day`, `360_day`, `julian`, `none`
-- Severity: WARN if missing, ERROR if invalid value
-- `suggested_fix: "add_calendar_attr"` (fixable)
+### Test gaps
 
-**4. Vertical `positive` attribute** (CF §4.3)
-- For coords with `axis="Z"` or name in `("depth", "lev", "level", "height", "altitude", "plev")`
-- Check `positive` is `"up"` or `"down"`
-- Severity: WARN if missing
-- `suggested_fix: None`
+These tests from the original plan were not written; lower priority but would improve coverage:
 
-**5. Dimension order** (COARDS / Ferret)
-- For each data variable: if T/Z/Y/X axes present, check order is T→Z→Y→X
-- Severity: WARN only
-- `suggested_fix: None`
-
-**6. CMIP6 recommended global attributes**
-- If `mip_era == "CMIP6"`: check `institution`, `source`, `tracking_id`, `creation_date`, `frequency`, `realm`, `variable_id`
-- Otherwise: check `institution`, `source`, `title`, `history`
-- Severity: WARN for missing
-- `suggested_fix: None`
-
-**Tests** (new `tests/test_heuristic_extended.py`):
-- `test_bounds_wrong_shape` → ERROR
-- `test_bounds_valid` → no finding
-- `test_cell_methods_valid` (`"time: mean"`) → no finding
-- `test_cell_methods_bad_method` (`"time: foobar"`) → WARN
-- `test_cell_methods_bad_dim` (`"nonexistent_dim: mean"`) → ERROR
-- `test_calendar_missing` → WARN
-- `test_calendar_invalid_value` → ERROR
-- `test_vertical_no_positive` → WARN
-- `test_dimension_order_wrong` → WARN
-- `test_cmip6_attrs_missing` → WARNs
+- **Ferret blocker guard** — explicit test: `_FillValue` on coord → ERROR (named `test_ferret_fillvalue_on_coord`)
+- **CMIP6 detection** — `mip_era="CMIP6"` triggers stricter attrs; currently covered by `test_cmip6_attrs_missing` but could be more thorough
 
 ---
-
-### Chunk 2 — Fix pipeline improvements (parallel with Chunk 1)
-**Files**: `src/nc_check/core/compliance.py`, `src/nc_check/checks/heuristic.py`, `src/nc_check/cli.py`
-
-**`make_dataset_compliant()` additions:**
-1. If time coord exists and `calendar` missing → add `calendar="standard"`
-2. Do NOT fix `positive` or dimension order (add to `unfixable_items` instead)
-
-**`HeuristicCheck.fix()` implementation:**
-- Apply calendar fix
-- Return `FixResult(applied=True, unfixable_items=[...])` listing items that were found but not auto-fixed
-
-**`nc-comply` CLI update (`cli.py:318-334`):**
-- Print summary after saving:
-  ```
-  Fixed:     3 issues written to output.nc
-  Unfixable: 2 issues require manual attention (run nc-check for details)
-  ```
-- Exit with code 1 if there are unfixable items (so CI pipelines catch it)
-
-**Tests** (new `tests/test_comply_pipeline.py`):
-- `test_comply_adds_calendar` → output has `calendar="standard"`
-- `test_comply_reports_unfixable` → exit code 1 when unfixable issues present
-- `test_comply_roundtrip` → re-run nc-check on output, assert no new errors
-
----
-
-### Chunk 3 — Test suite (finalise after Chunks 1 & 2)
-
-Priority tests beyond those above:
-1. **Fix round-trip** — `make_dataset_compliant()` on known-bad dataset → re-run `_heuristic_report()` → no regressions
-2. **Ferret blocker guard** — `_FillValue` on coord → ERROR (explicit named test)
-3. **Bounds bracket test** — bounds don't contain coordinate → WARN
-4. **CMIP6 detection** — `mip_era="CMIP6"` triggers stricter global attr checks
-
----
-
-## Execution order
-
-```
-Chunk 0  →  Chunk 1 + Chunk 2 (parallel)  →  Chunk 3
-```
 
 ## Verification
 
 ```bash
+uv run pytest                          # 147 tests, ~2s — must all pass
 uv run pytest tests/test_heuristic_extended.py tests/test_comply_pipeline.py -v
-uv run pytest                          # full suite — no regressions
 nc-check compliance tests/data/sample.nc
 nc-comply tests/data/sample.nc /tmp/out.nc && nc-check compliance /tmp/out.nc
 ```
