@@ -16,6 +16,13 @@ _RICH_HEADER_STYLE = "bold white"
 _RICH_LABEL_STYLE = "bold white"
 _RICH_TEXT_STYLE = "white"
 _RICH_TABLE_BORDER_STYLE = "bright_black"
+_CHEVRON_SVG = (
+    "<svg class='section-chevron' viewBox='0 0 16 16' fill='none'"
+    " stroke='currentColor' stroke-width='2.2' stroke-linecap='round'"
+    " stroke-linejoin='round' aria-hidden='true'>"
+    "<polyline points='5 3 11 8 5 13'/>"
+    "</svg>"
+)
 
 
 def _stringify(value: Any) -> str:
@@ -937,23 +944,28 @@ def _html_summary_table(rows: list[tuple[str, Any]]) -> str:
 
 
 def _html_details_section(
-    title: str, body_html: str, *, open_by_default: bool = False
+    title: str, body_html: str, *, open_by_default: bool = False, count: int | None = None
 ) -> str:
     open_attr = " open" if open_by_default else ""
+    count_html = f"<span class='section-count-badge'>{count}</span>" if count is not None else ""
     return (
         f"<details class='report-section'{open_attr}>"
         "<summary>"
-        f"<span class='section-title'>{escape(title)}</span>"
+        f"<span class='section-title-inner'>{_CHEVRON_SVG}"
+        f"<span class='section-title'>{escape(title)}</span>{count_html}</span>"
         "</summary>"
         f"<div class='section-body'>{body_html}</div>"
         "</details>"
     )
 
 
-def _html_static_section(title: str, body_html: str) -> str:
+def _html_static_section(title: str, body_html: str, *, count: int | None = None) -> str:
+    count_html = f"<span class='section-count-badge'>{count}</span>" if count is not None else ""
     return (
         "<section class='report-section static-section'>"
-        f"<div class='section-header'><span class='section-title'>{escape(title)}</span></div>"
+        "<div class='section-header'>"
+        f"<span class='section-title-inner'><span class='section-title'>{escape(title)}</span>{count_html}</span>"
+        "</div>"
         f"<div class='section-body'>{body_html}</div>"
         "</section>"
     )
@@ -970,7 +982,8 @@ def _html_variable_section(
     return (
         f"<details class='report-section variable-report'{open_attr}>"
         "<summary>"
-        f"<span class='section-title'>Variable: {escape(_stringify(variable_name))}</span>"
+        f"<span class='section-title-inner'>{_CHEVRON_SVG}"
+        f"<span class='section-title'>Variable: {escape(_stringify(variable_name))}</span></span>"
         f"<span class='summary-badge'>{_html_status_badge(status)}</span>"
         "</summary>"
         f"<div class='section-body'>{body_html}</div>"
@@ -1080,13 +1093,17 @@ def _html_issue_cards(findings: list[dict[str, str]]) -> str:
         return "<p class='issue-empty'>No findings reported.</p>"
 
     rows: list[str] = []
+    severities_seen: list[str] = []
+    _sev_order = ["FATAL", "ERROR", "WARN", "INFO"]
     for finding in findings:
         scope = _stringify(finding.get("scope", "n/a"))
         convention = _stringify(finding.get("convention", "n/a"))
         severity = _stringify(finding.get("severity", "info")).upper()
         detail = _stringify(finding.get("detail", ""))
+        if severity not in severities_seen:
+            severities_seen.append(severity)
         rows.append(
-            "<div class='issue-row issue-card'>"
+            f"<div class='issue-row issue-card' data-severity='{escape(severity)}'>"
             "<div class='issue-cell issue-status'>"
             f"{_html_severity_badge(severity)}"
             "</div>"
@@ -1097,7 +1114,8 @@ def _html_issue_cards(findings: list[dict[str, str]]) -> str:
             f"<p class='issue-cell issue-detail'>{escape(detail)}</p>"
             "</div>"
         )
-    return (
+
+    issue_list = (
         "<section class='issue-list'>"
         "<div class='issue-head'>"
         "<span class='issue-head-status'>Status</span>"
@@ -1105,6 +1123,23 @@ def _html_issue_cards(findings: list[dict[str, str]]) -> str:
         "<span class='issue-head-desc'>Description</span>"
         "</div>" + "".join(rows) + "</section>"
     )
+
+    present_sevs = [s for s in _sev_order if s in severities_seen] + [
+        s for s in severities_seen if s not in _sev_order
+    ]
+    filter_bar = ""
+    if len(present_sevs) > 1:
+        btns = "<button type='button' class='sev-filter-btn active' data-sev='ALL'>All</button>"
+        for sev in present_sevs:
+            btns += f"<button type='button' class='sev-filter-btn' data-sev='{escape(sev)}'>{escape(sev)}</button>"
+        filter_bar = (
+            "<div class='severity-filter-bar'>"
+            "<span class='severity-filter-label'>Filter:</span>"
+            + btns
+            + "</div>"
+        )
+
+    return "<div class='issue-list-wrap'>" + filter_bar + issue_list + "</div>"
 
 
 def _html_check_summary_table(rows: list[tuple[str, Any, str]]) -> str:
@@ -1261,6 +1296,7 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
             _html_static_section(
                 title,
                 _html_issue_cards(rows),
+                count=len(rows),
             )
         )
 
@@ -1270,6 +1306,7 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
             _html_static_section(
                 "Suggested Improvements",
                 _html_issue_cards(suggestion_rows),
+                count=len(suggestion_rows),
             )
         )
 
@@ -1942,14 +1979,18 @@ def _full_report_sections(report: dict[str, Any]) -> str:
         )
 
     reports = report.get("reports")
+    groups_dict = groups if isinstance(groups, dict) else {}
     if isinstance(reports, dict):
         compliance = reports.get("compliance")
         if isinstance(compliance, dict):
+            compliance_failing = _status_kind(
+                (groups_dict.get("compliance") or {}).get("status")
+            ) == "fail"
             sections.append(
                 _html_details_section(
                     "CF Compliance",
                     _cf_report_sections(compliance),
-                    open_by_default=False,
+                    open_by_default=compliance_failing,
                 )
             )
         ocean_cover = reports.get("ocean_cover")
@@ -1959,11 +2000,14 @@ def _full_report_sections(report: dict[str, Any]) -> str:
                 if ocean_cover.get("mode") == "all_variables"
                 else _ocean_report_sections(ocean_cover)
             )
+            ocean_failing = _status_kind(
+                (groups_dict.get("ocean_cover") or {}).get("status")
+            ) == "fail"
             sections.append(
                 _html_details_section(
                     "Ocean Coverage",
                     ocean_body,
-                    open_by_default=False,
+                    open_by_default=ocean_failing,
                 )
             )
         time_cover = reports.get("time_cover")
@@ -1973,11 +2017,14 @@ def _full_report_sections(report: dict[str, Any]) -> str:
                 if time_cover.get("mode") == "all_variables"
                 else _time_cover_report_sections(time_cover)
             )
+            time_failing = _status_kind(
+                (groups_dict.get("time_cover") or {}).get("status")
+            ) == "fail"
             sections.append(
                 _html_details_section(
                     "Time Coverage",
                     time_body,
-                    open_by_default=False,
+                    open_by_default=time_failing,
                 )
             )
 

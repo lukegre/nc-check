@@ -445,10 +445,117 @@ body{
   }
 }
 
+/* Chevron on collapsible section summaries */
+.section-chevron{
+  flex-shrink:0;
+  width:1rem;
+  height:1rem;
+  color:var(--text-muted);
+  transition:transform .2s ease;
+}
+
+details.report-section[open]>summary .section-chevron{
+  transform:rotate(90deg);
+}
+
+/* Wrapper keeps title text + count badge on one line */
+.section-title-inner{
+  display:flex;
+  align-items:center;
+  gap:.3rem;
+  min-width:0;
+}
+
+/* Count badge in section header */
+.section-count-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:1.35rem;
+  height:1.35rem;
+  border-radius:999px;
+  background:#dce8e4;
+  color:#2e4c57;
+  font-size:.71rem;
+  font-weight:700;
+  padding:0 .35rem;
+  flex-shrink:0;
+}
+
+/* Severity filter bar above issue lists */
+.severity-filter-bar{
+  display:flex;
+  gap:.32rem;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-bottom:.6rem;
+  padding-bottom:.5rem;
+  border-bottom:1px solid #dee8e4;
+}
+
+.severity-filter-label{
+  font-size:.74rem;
+  color:var(--text-muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  font-weight:650;
+  margin-right:.1rem;
+}
+
+.sev-filter-btn{
+  border:1px solid #cad8d3;
+  border-radius:999px;
+  background:#f5faf8;
+  color:#3a5560;
+  font-size:.73rem;
+  font-weight:700;
+  padding:.18rem .6rem;
+  cursor:pointer;
+  letter-spacing:.02em;
+  line-height:1.5;
+  transition:background .13s,border-color .13s;
+}
+
+.sev-filter-btn:hover{
+  background:#e6f2ef;
+  border-color:#9ab8b0;
+}
+
+.sev-filter-btn.active{
+  background:var(--hero-accent-a);
+  border-color:var(--hero-accent-a);
+  color:#fff;
+}
+
+.issue-row[data-sev-hidden]{
+  display:none;
+}
+
+@media print{
+  body{
+    background:#fff;
+  }
+
+  .report-actions,
+  .severity-filter-bar{
+    display:none;
+  }
+
+  .report-hero,
+  .report-section{
+    box-shadow:none;
+    animation:none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce){
   .report-hero,
   .report-section{
     animation:none;
+  }
+
+  .section-chevron{
+    transition:none;
   }
 }
 """
@@ -465,7 +572,6 @@ _REPORT_SCRIPT = """
   if (!details.length) {
     if (expandBtn) expandBtn.style.display = 'none';
     if (collapseBtn) collapseBtn.style.display = 'none';
-    return;
   }
 
   if (expandBtn) {
@@ -479,6 +585,36 @@ _REPORT_SCRIPT = """
       details.forEach(function (el) { el.open = false; });
     });
   }
+
+  // Severity filter bars
+  root.querySelectorAll('.issue-list-wrap').forEach(function (wrap) {
+    var bar = wrap.querySelector('.severity-filter-bar');
+    var list = wrap.querySelector('.issue-list');
+    if (!bar || !list) return;
+    var btns = bar.querySelectorAll('.sev-filter-btn');
+    function applyFilter(sev) {
+      list.querySelectorAll('.issue-row.issue-card').forEach(function (card) {
+        var cardSev = (card.getAttribute('data-severity') || '').toUpperCase();
+        if (!sev || sev === 'ALL' || cardSev === sev) {
+          card.removeAttribute('data-sev-hidden');
+        } else {
+          card.setAttribute('data-sev-hidden', '1');
+        }
+      });
+    }
+    btns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        btns.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        applyFilter((btn.getAttribute('data-sev') || 'ALL').toUpperCase());
+      });
+    });
+  });
+
+  // Expand all details sections before printing
+  window.addEventListener('beforeprint', function () {
+    root.querySelectorAll('details.report-section').forEach(function (el) { el.open = true; });
+  });
 })();
 """
 

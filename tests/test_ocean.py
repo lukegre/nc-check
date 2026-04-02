@@ -536,6 +536,6 @@ def test_time_multi_variable_html_uses_collapsible_variable_sections() -> None:
     assert "summary-table" in html
     assert "kv-grid" not in html
     assert (
-        "Variable: mask</span><span class='summary-badge'><span class='badge report-badge "
+        "Variable: mask</span></span><span class='summary-badge'><span class='badge report-badge "
         "rounded-pill bg-secondary-subtle"
     ) in html
