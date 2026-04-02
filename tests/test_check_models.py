@@ -48,3 +48,9 @@ def test_default_fix_returns_info_and_dataset() -> None:
     assert fix_result.applied is False
     assert info["message"] == "No fix implemented for this check."
     assert fixed_ds.identical(ds)
+
+
+def test_fix_result_unfixable_items_defaults_to_empty() -> None:
+    ds = xr.Dataset(data_vars={"v": (("x",), [1.0, 2.0])})
+    fix_result = _WarnCheck().fix(ds)
+    assert fix_result.unfixable_items == []

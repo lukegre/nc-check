@@ -53,6 +53,7 @@ def test_run_comply_writes_output_file(tmp_path) -> None:
     xr.Dataset(
         data_vars={"temp": (("lat", "lon"), [[280.0]])},
         coords={"lat": ["10"], "lon": ["20"]},
+        attrs={"institution": "X", "source": "Y", "title": "T", "history": "H"},
     ).to_netcdf(source)
 
     status = cli.run_comply([str(source), str(target)])
@@ -72,6 +73,7 @@ def test_run_comply_opens_input_with_chunks(monkeypatch, tmp_path) -> None:
     xr.Dataset(
         data_vars={"temp": (("lat", "lon"), [[280.0]])},
         coords={"lat": ["10"], "lon": ["20"]},
+        attrs={"institution": "X", "source": "Y", "title": "T", "history": "H"},
     ).to_netcdf(source)
 
     seen_open: dict[str, object] = {}

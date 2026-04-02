@@ -1231,6 +1231,25 @@ def make_dataset_compliant(ds: xr.Dataset) -> xr.Dataset:
         coord_attrs = deepcopy(out[coord_name].attrs)
         coord_attrs.pop("_FillValue", None)
         out[coord_name].attrs = coord_attrs
-        out[coord_name].encoding = {"_FillValue": None}
+        # Preserve existing encoding (e.g. calendar, units) — only override _FillValue.
+        existing_encoding = dict(out[coord_name].encoding)
+        existing_encoding["_FillValue"] = None
+        out[coord_name].encoding = existing_encoding
+
+    # Add calendar="standard" to time coordinates that lack it (CF §4.4.1 + CMIP6)
+    for coord_name in out.coords:
+        coord = out.coords[coord_name]
+        axis = coord.attrs.get("axis", "").upper()
+        name_lower = str(coord_name).lower()
+        if axis == "T" or name_lower == "time":
+            if "calendar" not in coord.attrs and "calendar" not in coord.encoding:
+                # For decoded datetime64 coords, calendar must go in encoding to
+                # avoid conflicts with xarray's CF time encoder.
+                if np.issubdtype(coord.dtype, np.datetime64) or np.issubdtype(
+                    coord.dtype, np.timedelta64
+                ):
+                    out[coord_name].encoding["calendar"] = "standard"
+                else:
+                    out[coord_name].attrs["calendar"] = "standard"
 
     return out

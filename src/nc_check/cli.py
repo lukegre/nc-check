@@ -7,6 +7,7 @@ from pathlib import Path
 import xarray as xr
 
 from . import accessor as _accessor  # noqa: F401  # register Dataset.check accessor
+from .checks.heuristic import HeuristicCheck
 from .checks.ocean import check_ocean_cover
 from .checks.time_cover import check_time_cover
 from .core import check_dataset_compliant, make_dataset_compliant
@@ -326,8 +327,19 @@ def run_comply(argv: list[str] | None = None) -> int:
 
     try:
         with xr.open_dataset(args.fname_in, chunks={}) as ds:
-            compliant = make_dataset_compliant(ds)
-            compliant.to_netcdf(args.fname_out)
+            check = HeuristicCheck(cf_version="CF-1.12")
+            check_result = check.check(ds)
+            fix_result = check.fix(ds, result=check_result)
+            fix_result.dataset.to_netcdf(args.fname_out)
+
+            n_unfixable = len(fix_result.unfixable_items)
+            print(f"Fixed:     issues written to {args.fname_out}")
+            if n_unfixable:
+                print(
+                    f"Unfixable: {n_unfixable} issue(s) require manual attention "
+                    f"(run nc-check for details)"
+                )
+                return 1
     except Exception as exc:
         print(f"nc-comply: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

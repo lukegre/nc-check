@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from ..core.check import Check, CheckInfo, CheckResult, CheckStatus
+from ..core.check import Check, CheckInfo, CheckResult, CheckStatus, FixResult
 
 _LAT_NAMES = {"lat", "latitude", "y"}
 _LON_NAMES = {"lon", "longitude", "x"}
@@ -55,6 +55,20 @@ _AXIS_RANGE_SPECS: dict[str, dict[str, Any]] = {
         "suggested_fix": "normalize_longitudes",
     },
 }
+
+_VALID_CELL_METHODS = frozenset({
+    "point", "sum", "mean", "maximum", "minimum", "mid_range",
+    "standard_deviation", "variance", "mode", "median",
+    "maximum_absolute_value", "minimum_absolute_value",
+    "mean_absolute_value", "mean_of_upper_decile",
+})
+
+_VALID_CALENDARS = frozenset({
+    "standard", "gregorian", "proleptic_gregorian", "noleap", "365_day",
+    "all_leap", "366_day", "360_day", "julian", "none",
+})
+
+_VERTICAL_NAMES = frozenset({"depth", "lev", "level", "height", "altitude", "plev"})
 
 
 @dataclass(frozen=True)
@@ -612,11 +626,305 @@ def _add_coordinate_reference_findings(
             coordinate_items.extend(coord_findings)
 
 
+def _bounds_structure_findings(
+    ds: xr.Dataset, var_name: str, var: xr.DataArray
+) -> list[dict[str, Any]]:
+    """Check bounds variable structure per CF §7.1."""
+    findings: list[dict[str, Any]] = []
+    bounds_attr = var.attrs.get("bounds")
+    if bounds_attr is None:
+        return findings
+
+    if bounds_attr not in ds:
+        findings.append(
+            _finding(
+                severity="ERROR",
+                item="bounds_missing_variable",
+                message=f"Variable '{var_name}' references bounds '{bounds_attr}' which does not exist.",
+                current=bounds_attr,
+                expected="bounds variable present in dataset",
+                suggested_fix=None,
+            )
+        )
+        return findings
+
+    bounds_var = ds[bounds_attr]
+    coord_vals = np.asarray(var.values)
+
+    # Check shape: should be (N, 2)
+    if bounds_var.ndim != 2 or bounds_var.shape[1] != 2:
+        findings.append(
+            _finding(
+                severity="ERROR",
+                item="bounds_wrong_shape",
+                message=(
+                    f"Bounds variable '{bounds_attr}' for '{var_name}' has shape "
+                    f"{bounds_var.shape}, expected (N, 2)."
+                ),
+                current=list(bounds_var.shape),
+                expected="shape (N, 2)",
+                suggested_fix=None,
+            )
+        )
+        return findings
+
+    # Check values bracket coordinate (only for numeric 1-D coords)
+    if coord_vals.ndim == 1 and is_numeric_dtype(var.dtype) and is_numeric_dtype(bounds_var.dtype):
+        bvals = np.asarray(bounds_var.values)
+        lower = bvals[:, 0]
+        upper = bvals[:, 1]
+        # bounds should contain the coordinate value (within or at the edge)
+        not_bracketed = np.any((coord_vals < np.minimum(lower, upper)) | (coord_vals > np.maximum(lower, upper)))
+        if not_bracketed:
+            findings.append(
+                _finding(
+                    severity="WARN",
+                    item="bounds_not_bracketing",
+                    message=(
+                        f"Bounds variable '{bounds_attr}' does not bracket all values of '{var_name}'."
+                    ),
+                    current=bounds_attr,
+                    expected="bounds enclosing all coordinate values",
+                    suggested_fix=None,
+                )
+            )
+    return findings
+
+
+def _cell_methods_findings(
+    ds: xr.Dataset, var_name: str, var: xr.DataArray
+) -> list[dict[str, Any]]:
+    """Validate cell_methods string per CF §7.4."""
+    findings: list[dict[str, Any]] = []
+    cell_methods = var.attrs.get("cell_methods")
+    if cell_methods is None:
+        return findings
+    if not isinstance(cell_methods, str):
+        findings.append(
+            _finding(
+                severity="WARN",
+                item="cell_methods_not_string",
+                message=f"Variable '{var_name}' cell_methods is not a string.",
+                current=type(cell_methods).__name__,
+                expected="string in 'dim: method' format",
+                suggested_fix=None,
+            )
+        )
+        return findings
+
+    # Parse "dim: method [dim: method ...]"
+    # The format can have parenthetical comments; we strip those for basic parsing
+    stripped = re.sub(r'\(.*?\)', '', cell_methods)
+    tokens = stripped.split()
+
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token.endswith(':'):
+            dim_name = token[:-1]
+            method = tokens[i + 1] if i + 1 < len(tokens) else None
+
+            # Check dim exists in dataset
+            if dim_name not in ds.dims and dim_name not in ds.coords:
+                findings.append(
+                    _finding(
+                        severity="ERROR",
+                        item="cell_methods_unknown_dim",
+                        message=(
+                            f"Variable '{var_name}' cell_methods references "
+                            f"dimension '{dim_name}' which does not exist."
+                        ),
+                        current=cell_methods,
+                        expected=f"dimension '{dim_name}' to exist in dataset",
+                        suggested_fix=None,
+                    )
+                )
+
+            # Check method is valid
+            if method is not None and not method.endswith(':'):
+                if method not in _VALID_CELL_METHODS:
+                    findings.append(
+                        _finding(
+                            severity="WARN",
+                            item="cell_methods_unknown_method",
+                            message=(
+                                f"Variable '{var_name}' cell_methods uses unknown "
+                                f"method '{method}' for dimension '{dim_name}'."
+                            ),
+                            current=cell_methods,
+                            expected=f"one of: {', '.join(sorted(_VALID_CELL_METHODS))}",
+                            suggested_fix=None,
+                        )
+                    )
+                i += 2
+                continue
+        i += 1
+    return findings
+
+
+def _time_calendar_findings(
+    issues: dict[str, Any], ds: xr.Dataset, axis_guesses: dict[str, "AxisGuess"]
+) -> None:
+    """Check calendar attribute on time coordinates per CF §4.4.1."""
+    time_dims = {dim for dim, guess in axis_guesses.items() if guess.axis_type == "time"}
+    # Also check any coord named 'time' even if not guessed as an axis dim
+    for coord_name in ds.coords:
+        name_lower = str(coord_name).lower()
+        if name_lower == "time" or coord_name in time_dims:
+            coord = ds.coords[coord_name]
+            calendar = coord.attrs.get("calendar")
+            if calendar is None:
+                calendar = coord.encoding.get("calendar")
+
+            coord_findings = issues["coordinates"].setdefault(str(coord_name), [])
+            if calendar is None:
+                coord_findings.append(
+                    _finding(
+                        severity="WARN",
+                        item="missing_calendar_attr",
+                        message=(
+                            f"Time coordinate '{coord_name}' is missing the 'calendar' attribute."
+                        ),
+                        current=None,
+                        expected="one of: " + ", ".join(sorted(_VALID_CALENDARS)),
+                        suggested_fix="add_calendar_attr",
+                    )
+                )
+            elif str(calendar).lower() not in _VALID_CALENDARS:
+                coord_findings.append(
+                    _finding(
+                        severity="ERROR",
+                        item="invalid_calendar_attr",
+                        message=(
+                            f"Time coordinate '{coord_name}' has invalid calendar='{calendar}'."
+                        ),
+                        current=calendar,
+                        expected="one of: " + ", ".join(sorted(_VALID_CALENDARS)),
+                        suggested_fix=None,
+                    )
+                )
+
+
+def _vertical_positive_findings(issues: dict[str, Any], ds: xr.Dataset) -> None:
+    """Check positive attribute on vertical coordinates per CF §4.3."""
+    for coord_name, coord in ds.coords.items():
+        name_lower = str(coord_name).lower()
+        axis = str(coord.attrs.get("axis", "")).upper()
+        is_vertical = axis == "Z" or name_lower in _VERTICAL_NAMES
+        if not is_vertical:
+            continue
+
+        positive = coord.attrs.get("positive")
+        coord_findings = issues["coordinates"].setdefault(str(coord_name), [])
+
+        if positive is None:
+            coord_findings.append(
+                _finding(
+                    severity="WARN",
+                    item="missing_positive_attr",
+                    message=(
+                        f"Vertical coordinate '{coord_name}' is missing the 'positive' attribute."
+                    ),
+                    current=None,
+                    expected="'up' or 'down'",
+                    suggested_fix=None,
+                )
+            )
+        elif str(positive).lower() not in {"up", "down"}:
+            coord_findings.append(
+                _finding(
+                    severity="ERROR",
+                    item="invalid_positive_attr",
+                    message=(
+                        f"Vertical coordinate '{coord_name}' has invalid positive='{positive}'."
+                    ),
+                    current=positive,
+                    expected="'up' or 'down'",
+                    suggested_fix=None,
+                )
+            )
+
+
+def _dimension_order_findings(
+    issues: dict[str, Any], ds: xr.Dataset, axis_guesses: dict[str, "AxisGuess"]
+) -> None:
+    """Check T,Z,Y,X dimension order per COARDS/Ferret convention."""
+    # Build dim -> axis_rank mapping
+    dim_ranks: dict[str, int] = {}
+    for dim, guess in axis_guesses.items():
+        rank = {"time": 0, "lat": 3, "lon": 4}.get(guess.axis_type)
+        if rank is not None:
+            dim_ranks[dim] = rank
+    # Z coordinates (depth/level) not in axis_guesses, detect by name/attr
+    for coord_name, coord in ds.coords.items():
+        name_lower = str(coord_name).lower()
+        axis = str(coord.attrs.get("axis", "")).upper()
+        if axis == "Z" or name_lower in _VERTICAL_NAMES:
+            dim_ranks[str(coord_name)] = 2
+
+    if len(dim_ranks) < 2:
+        return  # Not enough axes to check order
+
+    for var_name, da in ds.data_vars.items():
+        var_dims = [str(d) for d in da.dims]
+        ranked_dims = [(i, dim_ranks[d]) for i, d in enumerate(var_dims) if d in dim_ranks]
+        if len(ranked_dims) < 2:
+            continue
+
+        positions = [pos for pos, _ in ranked_dims]
+        ranks = [rank for _, rank in ranked_dims]
+
+        # Check that ranks are in increasing order
+        if ranks != sorted(ranks):
+            expected_order = sorted([(d, dim_ranks[d]) for d in var_dims if d in dim_ranks], key=lambda x: x[1])
+            expected_dims = [d for d, _ in expected_order]
+            issues["variables"].setdefault(str(var_name), []).append(
+                _finding(
+                    severity="WARN",
+                    item="wrong_dimension_order",
+                    message=(
+                        f"Variable '{var_name}' has dimensions {var_dims!r}; "
+                        f"expected CF/COARDS order T,Z,Y,X."
+                    ),
+                    current=var_dims,
+                    expected=f"T,Z,Y,X order (e.g. {expected_dims})",
+                    suggested_fix=None,
+                )
+            )
+
+
+_CMIP6_REQUIRED_ATTRS = (
+    "institution", "source", "tracking_id", "creation_date",
+    "frequency", "realm", "variable_id",
+)
+_GENERAL_RECOMMENDED_ATTRS = ("institution", "source", "title", "history")
+
+
+def _cmip6_global_attr_findings(issues: dict[str, Any], ds: xr.Dataset) -> None:
+    """Check CMIP6 or general recommended global attributes."""
+    is_cmip6 = ds.attrs.get("mip_era") == "CMIP6"
+    required = _CMIP6_REQUIRED_ATTRS if is_cmip6 else _GENERAL_RECOMMENDED_ATTRS
+
+    for attr in required:
+        if attr not in ds.attrs:
+            issues["global"].append(
+                _finding(
+                    severity="WARN",
+                    item=f"missing_global_attr:{attr}",
+                    message=f"Recommended global attribute '{attr}' is missing.",
+                    current=None,
+                    expected=f"global attribute '{attr}' present",
+                    suggested_fix=None,
+                )
+            )
+
+
 def _heuristic_report(ds: xr.Dataset, *, cf_version: str) -> dict[str, Any]:
     issues = _new_issues(cf_version)
     _add_conventions_finding(issues, ds, cf_version=cf_version)
 
-    for dim, guess in _axis_guesses(ds, issues).items():
+    axis_guesses = _axis_guesses(ds, issues)
+    for dim, guess in axis_guesses.items():
         coord_issues = _coord_findings_for_axis(dim, guess, ds)
         if coord_issues:
             issues["coordinates"][dim] = coord_issues
@@ -624,6 +932,35 @@ def _heuristic_report(ds: xr.Dataset, *, cf_version: str) -> dict[str, Any]:
     available_names = {str(name) for name in ds.variables}
     _add_variable_findings(issues, ds, available_names)
     _add_coordinate_reference_findings(issues, ds, available_names)
+
+    # Bounds structure (CF §7.1)
+    for name_raw in list(ds.data_vars) + list(ds.coords):
+        name = str(name_raw)
+        var = ds[name]
+        if "bounds" in var.attrs:
+            findings = _bounds_structure_findings(ds, name, var)
+            if findings:
+                issues["variables"].setdefault(name, []).extend(findings)
+
+    # Cell methods (CF §7.4)
+    for name_raw, da in ds.data_vars.items():
+        name = str(name_raw)
+        if "cell_methods" in da.attrs:
+            findings = _cell_methods_findings(ds, name, da)
+            if findings:
+                issues["variables"].setdefault(name, []).extend(findings)
+
+    # Time calendar (CF §4.4.1)
+    _time_calendar_findings(issues, ds, axis_guesses)
+
+    # Vertical positive (CF §4.3)
+    _vertical_positive_findings(issues, ds)
+
+    # Dimension order (COARDS/Ferret)
+    _dimension_order_findings(issues, ds, axis_guesses)
+
+    # CMIP6/general global attributes
+    _cmip6_global_attr_findings(issues, ds)
 
     return issues
 
@@ -692,8 +1029,43 @@ class HeuristicCheck(Check):
                     "cf_version": self.cf_version,
                 },
             ),
-            fixable=False,
+            fixable=True,
             tags=list(self.tags),
+        )
+
+    def fix(self, ds: xr.Dataset, result: CheckResult | None = None) -> FixResult:
+        from nc_check.core.compliance import make_dataset_compliant
+
+        fixed_ds = make_dataset_compliant(ds)
+
+        # Collect unfixable items from the check report
+        report = self.run_report(ds)
+        unfixable_items: list[str] = []
+        for finding in report.get("global", []):
+            if isinstance(finding, dict) and finding.get("suggested_fix") is None:
+                item = finding.get("item")
+                if item:
+                    unfixable_items.append(str(item))
+        for section in ("coordinates", "variables"):
+            for scope_name, findings in report.get(section, {}).items():
+                for finding in findings:
+                    if isinstance(finding, dict) and finding.get("suggested_fix") is None:
+                        item = finding.get("item")
+                        if item:
+                            unfixable_items.append(f"{scope_name}:{item}")
+
+        return FixResult(
+            check_id=self.id,
+            applied=True,
+            info=CheckInfo(
+                message=(
+                    f"Applied CF compliance fixes. "
+                    f"{len(unfixable_items)} item(s) require manual attention."
+                ),
+                details={"unfixable_count": len(unfixable_items)},
+            ),
+            dataset=fixed_ds,
+            unfixable_items=unfixable_items,
         )
 
 
