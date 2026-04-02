@@ -64,6 +64,7 @@ class FixResult(BaseModel):
     applied: bool
     info: CheckInfo
     dataset: xr.Dataset = Field(repr=False)
+    unfixable_items: list[str] = Field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +72,7 @@ class FixResult(BaseModel):
             "applied": self.applied,
             "info": self.info.model_dump(mode="json", exclude_none=True),
             "dataset": self.dataset,
+            "unfixable_items": self.unfixable_items,
         }
 
     def as_tuple(self) -> tuple[dict[str, Any], xr.Dataset]:
