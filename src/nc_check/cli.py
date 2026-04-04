@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import xarray as xr
 
+from . import __version__
 from . import accessor as _accessor  # noqa: F401  # register Dataset.check accessor
+from . import formatting
 from .checks.heuristic import HeuristicCheck
 from .checks.ocean import check_ocean_cover
 from .checks.time_cover import check_time_cover
@@ -23,14 +26,18 @@ def _existing_file(path: str) -> Path:
 
 
 def _normalize_check_argv(argv: list[str] | None) -> list[str]:
-    """Support `nc-check <file>` as shorthand for `nc-check compliance <file>`."""
+    """Support `nc-check <file>` as shorthand for `nc-check compliance <file>`.
+
+    Skips leading option flags so that e.g. `nc-check --no-fail input.nc`
+    is correctly normalised to `nc-check --no-fail compliance input.nc`.
+    """
     raw = list(sys.argv[1:] if argv is None else argv)
-    if not raw:
-        return raw
-    first = raw[0]
-    if first in _CHECK_MODES or first.startswith("-"):
-        return raw
-    return ["compliance", *raw]
+    for i, arg in enumerate(raw):
+        if not arg.startswith("-"):
+            if arg not in _CHECK_MODES:
+                return raw[:i] + ["compliance"] + raw[i:]
+            break
+    return raw
 
 
 def _build_check_parser() -> argparse.ArgumentParser:
@@ -53,6 +60,11 @@ def _build_check_parser() -> argparse.ArgumentParser:
             "  nc-check input.nc   # shorthand for `nc-check compliance input.nc`"
         ),
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"nc-check {__version__}",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True, title="Commands")
 
@@ -68,6 +80,15 @@ def _build_check_parser() -> argparse.ArgumentParser:
                 "'<input>_report.html'; ocean-cover/time-cover use "
                 "'<input>_<command>_report.html'; all uses "
                 "'<input>_all_report.html' (single combined report)."
+            ),
+        )
+        command_parser.add_argument(
+            "--no-fail",
+            action="store_true",
+            default=False,
+            help=(
+                "Exit 0 even when checks find failures. "
+                "Useful for CI pipelines that run nc-check for reporting only."
             ),
         )
 
@@ -195,12 +216,76 @@ def _build_check_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _report_failed(mode: str, report: Any) -> bool:
+    """Return True if the report indicates one or more check failures."""
+    if not isinstance(report, dict):
+        return False
+    if mode == "compliance":
+        counts = report.get("counts") or {}
+        return int(counts.get("fatal", 0) or 0) + int(counts.get("error", 0) or 0) > 0
+    if mode in ("ocean-cover", "time-cover"):
+        return not bool(report.get("ok", True))
+    if mode == "all":
+        return not bool((report.get("summary") or {}).get("overall_ok", True))
+    return False
+
+
+def _render_check_report(
+    mode: str,
+    report: dict[str, Any],
+    report_format: str,
+    report_html_file: Path | None,
+) -> None:
+    """Render a collected report dict in the requested format."""
+    if report_format == "tables":
+        if mode == "compliance":
+            formatting.print_pretty_report(report)
+        elif mode == "ocean-cover":
+            if report.get("mode") == "all_variables":
+                formatting.print_pretty_ocean_reports(list(report["reports"].values()))
+            else:
+                formatting.print_pretty_ocean_report(report)
+        elif mode == "time-cover":
+            if report.get("mode") == "all_variables":
+                formatting.print_pretty_time_cover_reports(
+                    list(report["reports"].values())
+                )
+            else:
+                formatting.print_pretty_time_cover_report(report)
+        elif mode == "all":
+            formatting.print_pretty_full_report(report)
+    elif report_format == "html":
+        if mode == "compliance":
+            html = formatting.render_pretty_report_html(report)
+        elif mode == "ocean-cover":
+            if report.get("mode") == "all_variables":
+                html = formatting.render_pretty_ocean_reports_html(
+                    list(report["reports"].values())
+                )
+            else:
+                html = formatting.render_pretty_ocean_report_html(report)
+        elif mode == "time-cover":
+            if report.get("mode") == "all_variables":
+                html = formatting.render_pretty_time_cover_reports_html(
+                    list(report["reports"].values())
+                )
+            else:
+                html = formatting.render_pretty_time_cover_report_html(report)
+        elif mode == "all":
+            html = formatting.render_pretty_full_report_html(report)
+        else:
+            return
+        formatting.save_html_report(html, report_html_file)
+        formatting.maybe_display_html_report(html)
+
+
 def run_check(argv: list[str] | None = None) -> int:
     parser = _build_check_parser()
     args = parser.parse_args(_normalize_check_argv(argv))
 
     mode = str(args.command)
     input_file: Path = args.fname
+    no_fail: bool = bool(getattr(args, "no_fail", False))
 
     report_format = "html" if args.save_report else "tables"
     report_html_file = (
@@ -221,35 +306,35 @@ def run_check(argv: list[str] | None = None) -> int:
     try:
         with xr.open_dataset(input_file, chunks={}) as ds:
             if mode == "compliance":
-                check_dataset_compliant(
+                result = check_dataset_compliant(
                     ds,
                     conventions=conventions,
                     engine=engine,
-                    report_format=report_format,
-                    report_html_file=report_html_file,
+                    report_format="python",
                 )
+                report: dict[str, Any] = result if isinstance(result, dict) else {}
             elif mode == "ocean-cover":
-                check_ocean_cover(
+                result = check_ocean_cover(
                     ds,
                     lon_name=lon_name,
                     lat_name=lat_name,
                     time_name=time_name,
                     check_lon_0_360=check_lon_0_360,
                     check_lon_neg180_180=check_lon_neg180_180,
-                    report_format=report_format,
-                    report_html_file=report_html_file,
+                    report_format="python",
                 )
+                report = result if isinstance(result, dict) else {}
             elif mode == "time-cover":
-                check_time_cover(
+                result = check_time_cover(
                     ds,
                     time_name=time_name,
                     check_time_monotonic=check_time_monotonic,
                     check_time_regular_spacing=check_time_regular_spacing,
-                    report_format=report_format,
-                    report_html_file=report_html_file,
+                    report_format="python",
                 )
+                report = result if isinstance(result, dict) else {}
             elif mode == "all":
-                _run_all_checks(
+                report = _run_all_checks(
                     ds,
                     conventions=conventions,
                     engine=engine,
@@ -260,13 +345,18 @@ def run_check(argv: list[str] | None = None) -> int:
                     check_lon_neg180_180=check_lon_neg180_180,
                     check_time_monotonic=check_time_monotonic,
                     check_time_regular_spacing=check_time_regular_spacing,
-                    report_format=report_format,
-                    report_html_file=report_html_file,
                 )
             else:
                 parser.error(f"Unsupported mode: {mode}")
+                return 1
+
+            _render_check_report(mode, report, report_format, report_html_file)
+
     except Exception as exc:
         print(f"nc-check: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    if not no_fail and _report_failed(mode, report):
         return 1
     return 0
 
@@ -298,10 +388,8 @@ def _run_all_checks(
     check_lon_neg180_180: bool,
     check_time_monotonic: bool,
     check_time_regular_spacing: bool,
-    report_format: str,
-    report_html_file: str | Path | None,
-) -> dict[str, object] | str | None:
-    return ds.check.all(
+) -> dict[str, Any]:
+    result = ds.check.all(
         conventions=conventions,
         engine=engine,
         lon_name=lon_name,
@@ -311,9 +399,9 @@ def _run_all_checks(
         check_lon_neg180_180=check_lon_neg180_180,
         check_time_monotonic=check_time_monotonic,
         check_time_regular_spacing=check_time_regular_spacing,
-        report_format=report_format,
-        report_html_file=report_html_file,
+        report_format="python",
     )
+    return result if isinstance(result, dict) else {}
 
 
 def run_comply(argv: list[str] | None = None) -> int:

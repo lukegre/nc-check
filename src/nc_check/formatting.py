@@ -6,6 +6,8 @@ import sys
 from typing import Any
 from typing import Literal
 
+from datetime import date as _date
+
 from .report_templates import render_report_document
 
 ResolvedReportFormat = Literal["python", "tables", "html"]
@@ -16,6 +18,17 @@ _RICH_HEADER_STYLE = "bold white"
 _RICH_LABEL_STYLE = "bold white"
 _RICH_TEXT_STYLE = "white"
 _RICH_TABLE_BORDER_STYLE = "bright_black"
+
+
+def _report_generated_stamp() -> tuple[str, str]:
+    """Return (version_string, iso_date) for HTML report subtitles."""
+    from importlib.metadata import PackageNotFoundError, version as _v
+
+    try:
+        ver = _v("nc-check")
+    except PackageNotFoundError:
+        ver = "unknown"
+    return ver, _date.today().isoformat()
 
 
 def _stringify(value: Any) -> str:
@@ -1638,7 +1651,14 @@ def _time_cover_report_sections(report: dict[str, Any]) -> str:
 def render_pretty_ocean_report_html(report: Any) -> str:
     if not isinstance(report, dict):
         return _yaml_html_fallback(report)
-    intro = f"<p class='report-subtitle mb-0'>Variable: {escape(_stringify(report.get('variable')))}</p>"
+    ver, gen_date = _report_generated_stamp()
+    intro = (
+        f"<p class='report-subtitle mb-0'>"
+        f"Variable: {escape(_stringify(report.get('variable')))}"
+        f" &middot; nc-check {escape(ver)}"
+        f" &middot; Generated: {escape(gen_date)}"
+        f"</p>"
+    )
     return render_report_document(
         "Ocean Coverage Report", intro, _ocean_report_sections(report)
     )
@@ -1657,7 +1677,14 @@ def render_pretty_ocean_reports_html(reports: list[dict[str, Any]]) -> str:
                 open_by_default=False,
             )
         )
-    intro = "<p class='report-subtitle mb-0'>Variables checked across all eligible variables.</p>"
+    ver, gen_date = _report_generated_stamp()
+    intro = (
+        f"<p class='report-subtitle mb-0'>"
+        f"Variables checked across all eligible variables."
+        f" &middot; nc-check {escape(ver)}"
+        f" &middot; Generated: {escape(gen_date)}"
+        f"</p>"
+    )
     return render_report_document(
         "Ocean Coverage Report",
         intro,
@@ -1739,7 +1766,14 @@ def _ocean_reports_summary_sections(reports: list[dict[str, Any]]) -> str:
 def render_pretty_time_cover_report_html(report: Any) -> str:
     if not isinstance(report, dict):
         return _yaml_html_fallback(report)
-    intro = f"<p class='report-subtitle mb-0'>Variable: {escape(_stringify(report.get('variable')))}</p>"
+    ver, gen_date = _report_generated_stamp()
+    intro = (
+        f"<p class='report-subtitle mb-0'>"
+        f"Variable: {escape(_stringify(report.get('variable')))}"
+        f" &middot; nc-check {escape(ver)}"
+        f" &middot; Generated: {escape(gen_date)}"
+        f"</p>"
+    )
     return render_report_document(
         "Time Coverage Report", intro, _time_cover_report_sections(report)
     )
@@ -1821,7 +1855,14 @@ def render_pretty_time_cover_reports_html(reports: list[dict[str, Any]]) -> str:
                 open_by_default=False,
             )
         )
-    intro = "<p class='report-subtitle mb-0'>Variables checked across all data variables.</p>"
+    ver, gen_date = _report_generated_stamp()
+    intro = (
+        f"<p class='report-subtitle mb-0'>"
+        f"Variables checked across all data variables."
+        f" &middot; nc-check {escape(ver)}"
+        f" &middot; Generated: {escape(gen_date)}"
+        f"</p>"
+    )
     return render_report_document(
         "Time Coverage Report",
         intro,
@@ -2002,9 +2043,12 @@ def render_pretty_full_report_html(report: Any) -> str:
         if isinstance(enabled, dict)
         else ""
     )
+    ver, gen_date = _report_generated_stamp()
     intro = (
         "<p class='report-subtitle mb-0'>"
         f"Selected checks: {escape(enabled_checks or 'none')}"
+        f" &middot; nc-check {escape(ver)}"
+        f" &middot; Generated: {escape(gen_date)}"
         "</p>"
     )
     return render_report_document(

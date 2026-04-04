@@ -113,10 +113,18 @@ body{
 }
 
 .report-actions{
+  position:sticky;
+  top:0;
+  z-index:100;
   margin:.8rem 0 .7rem 0;
+  padding:.45rem .6rem;
   display:flex;
   gap:.45rem;
   flex-wrap:wrap;
+  background:var(--bg-top);
+  border-bottom:1px solid var(--panel-border);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
 }
 
 .action-button{
@@ -451,6 +459,67 @@ body{
     animation:none;
   }
 }
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg-top:#0a1418;
+    --bg-mid:#0d1c22;
+    --bg-bottom:#0f1f27;
+    --panel-bg:#111f27;
+    --panel-border:#1f3340;
+    --panel-shadow:0 14px 35px rgba(0,0,0,.45);
+    --text-main:#cdd9df;
+    --text-muted:#7fa4b4;
+    --heading:#e2edf2;
+    --header-bg:#152430;
+    --header-bg-strong:#1b2e3c;
+  }
+  body{
+    background:
+      radial-gradient(1100px 500px at 5% -20%, rgba(13,148,136,.09), transparent 58%),
+      radial-gradient(900px 450px at 96% -10%, rgba(245,158,11,.08), transparent 54%),
+      linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 48%, var(--bg-bottom) 100%);
+  }
+  .action-button{ border-color:#2a3f4c; color:#9bbfcd; background:#152430; }
+  .action-button:hover{ background:#1b2e3c; border-color:#3a5566; color:#cdd9df; }
+  .stat-card{ border-color:#1f3340; background:#13232d; }
+  .stat-card .stat-label{ color:#7fa4b4; }
+  .stat-card .stat-value{ color:#cdd9df; }
+  .stat-card.status-fail{ border-color:#5a2020; background:#200e0e; }
+  .stat-card.status-warn{ border-color:#5a4010; background:#1e1506; }
+  .issue-card{ border-color:#1f3340; background:#111f27; }
+  .issue-detail,.issue-scope{ color:#b0cad5; }
+  .issue-convention{ color:#7fa4b4; }
+  .issue-empty{ color:#5a8090; }
+  .report-section pre{ background:#0d1c22; border-color:#1f3340; color:#b0cad5; }
+  .report-section .section-body{ border-top-color:#1f3340; }
+  .report-table thead th{ background:#152430; color:#7fa4b4; border-bottom-color:#1f3340; }
+  .report-table td{ color:#cdd9df; border-color:#1f3340; }
+  .summary-kv .kv-label{ color:#7fa4b4; }
+  .summary-kv .kv-value{ color:#cdd9df; }
+  .pre-copy-btn{ background:#152430; color:#7fa4b4; border-color:#2a3f4c; }
+}
+
+.pre-wrapper{ position:relative; }
+.pre-copy-btn{
+  position:absolute;
+  top:.38rem;
+  right:.45rem;
+  padding:.18rem .48rem;
+  font-size:.74rem;
+  font-weight:600;
+  line-height:1.4;
+  cursor:pointer;
+  border:1px solid var(--panel-border);
+  border-radius:5px;
+  background:var(--panel-bg);
+  color:var(--text-muted);
+  opacity:0;
+  transition:opacity .15s ease, background .12s ease;
+}
+.pre-wrapper:hover .pre-copy-btn,
+.pre-copy-btn:focus{ opacity:1; }
+.pre-copy-btn.copied{ background:#0d9488; color:#fff; border-color:#0d9488; opacity:1; }
 """
 
 _REPORT_SCRIPT = """
@@ -479,6 +548,37 @@ _REPORT_SCRIPT = """
       details.forEach(function (el) { el.open = false; });
     });
   }
+
+  root.querySelectorAll('pre').forEach(function (pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'pre-wrapper';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pre-copy-btn';
+    btn.textContent = 'Copy';
+    wrap.appendChild(btn);
+    btn.addEventListener('click', function () {
+      var text = pre.textContent || '';
+      var done = function (ok) {
+        btn.textContent = ok ? 'Copied!' : 'Failed';
+        if (ok) btn.classList.add('copied');
+        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(true); } catch (e) { done(false); }
+        document.body.removeChild(ta);
+      }
+    });
+  });
 })();
 """
 
