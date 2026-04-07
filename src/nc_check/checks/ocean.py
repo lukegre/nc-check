@@ -506,8 +506,8 @@ class LandOceanOffsetCheck(Check):
             "enabled": True,
             "status": status,
             "mismatch_count": sum(r["mismatch_count"] for r in time_results),
-            "land_points_checked": len(_LAND_REFERENCE_POINTS),
-            "ocean_points_checked": len(_OCEAN_REFERENCE_POINTS),
+            "land_points_checked": len(_LAND_REFERENCE_POINTS) * len(time_indices),
+            "ocean_points_checked": len(_OCEAN_REFERENCE_POINTS) * len(time_indices),
             "land_mismatches": [m for r in time_results for m in r["land_mismatches"]],
             "ocean_mismatches": [m for r in time_results for m in r["ocean_mismatches"]],
         }
