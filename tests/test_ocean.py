@@ -112,6 +112,114 @@ def test_land_ocean_offset_check_skips_boolean_dtype() -> None:
     assert "boolean data" in offset["note"]
 
 
+def _make_aligned_2d(
+    lon: np.ndarray, lat: np.ndarray
+) -> np.ndarray:
+    """Return a 2D float array with known land points set to NaN."""
+    data = np.ones((lat.size, lon.size), dtype=float)
+    land_points = [(23, 13), (-25, 134), (47, 103), (72, -40), (-15, -60)]
+    for plat, plon in land_points:
+        lat_idx = int(np.argmin(np.abs(lat - plat)))
+        lon_idx = int(np.argmin(np.abs(lon - plon)))
+        data[lat_idx, lon_idx] = np.nan
+    return data
+
+
+def test_land_ocean_offset_check_with_time_all_pass() -> None:
+    lon = np.arange(-180.0, 181.0, 1.0)
+    lat = np.arange(-90.0, 91.0, 1.0)
+    time = np.arange(5)
+    slice_2d = _make_aligned_2d(lon, lat)
+    data = np.stack([slice_2d] * time.size, axis=0)  # (time, lat, lon)
+
+    ds = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": time, "lat": lat, "lon": lon},
+    )
+
+    report = check_ocean_cover(
+        ds,
+        var_name="sst",
+        check_edge_of_map=False,
+        report_format="python",
+    )
+
+    offset = report["land_ocean_offset"]
+    assert offset["status"] == "pass"
+    assert offset["mismatch_count"] == 0
+    assert offset["sampled_time_indices"] == [0, 2, 4]
+    assert all(r["mismatch_count"] == 0 for r in offset["time_results"])
+
+
+def test_land_ocean_offset_check_with_time_all_fail() -> None:
+    lon = np.arange(-180.0, 181.0, 1.0)
+    lat = np.arange(-90.0, 91.0, 1.0)
+    time = np.arange(5)
+    # Shift data so all time steps fail
+    slice_2d = _make_aligned_2d(lon, lat)
+    shifted = np.roll(slice_2d, 20, axis=1)
+    data = np.stack([shifted] * time.size, axis=0)
+
+    ds = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": time, "lat": lat, "lon": lon},
+    )
+
+    report = check_ocean_cover(
+        ds,
+        var_name="sst",
+        check_edge_of_map=False,
+        report_format="python",
+    )
+
+    offset = report["land_ocean_offset"]
+    assert offset["status"] == "fail"
+    assert offset["mismatch_count"] > 0
+    assert offset["sampled_time_indices"] == [0, 2, 4]
+    assert all(r["mismatch_count"] > 0 for r in offset["time_results"])
+
+
+def test_land_ocean_offset_check_with_time_partial_fail() -> None:
+    lon = np.arange(-180.0, 181.0, 1.0)
+    lat = np.arange(-90.0, 91.0, 1.0)
+    # 5 time steps; index 0 (and halfway=2) pass, index 4 (end) is shifted
+    time = np.arange(5)
+    good_slice = _make_aligned_2d(lon, lat)
+    bad_slice = np.roll(good_slice, 20, axis=1)
+    data = np.stack(
+        [good_slice, good_slice, good_slice, good_slice, bad_slice], axis=0
+    )
+
+    ds = xr.Dataset(
+        data_vars={"sst": (("time", "lat", "lon"), data)},
+        coords={"time": time, "lat": lat, "lon": lon},
+    )
+
+    report = check_ocean_cover(
+        ds,
+        var_name="sst",
+        check_edge_of_map=False,
+        report_format="python",
+    )
+
+    offset = report["land_ocean_offset"]
+    assert offset["status"] == "warn"
+    assert offset["sampled_time_indices"] == [0, 2, 4]
+    # time index 4 (end) fails, the other two pass
+    failed_results = [r for r in offset["time_results"] if r["mismatch_count"] > 0]
+    passed_results = [r for r in offset["time_results"] if r["mismatch_count"] == 0]
+    assert len(failed_results) == 1
+    assert len(passed_results) == 2
+    # CheckResult should carry a suggested_fix mentioning time_cover
+    from nc_check.checks.ocean import LandOceanOffsetCheck
+    check = LandOceanOffsetCheck(
+        var_name="sst", lon_name="lon", lat_name="lat", time_name="time"
+    )
+    result = check.check(ds)
+    assert result.info.suggested_fix is not None
+    assert "time_cover" in result.info.suggested_fix
+
+
 def test_time_cover_reports_ranges() -> None:
     lon = np.arange(0.0, 360.0, 60.0)
     lat = np.array([-45.0, 45.0])

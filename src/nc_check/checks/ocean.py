@@ -7,7 +7,7 @@ from typing import Any, Literal, TypeAlias
 import numpy as np
 import xarray as xr
 
-from ..core.check import Check, CheckInfo, CheckResult
+from ..core.check import Check, CheckInfo, CheckResult, CheckStatus
 from ..core.coverage import (
     indices_to_ranges,
     leaf_statuses,
@@ -404,12 +404,12 @@ class LandOceanOffsetCheck(Check):
                 "note": "Skipped land/ocean sanity check because grid does not appear global.",
             }
 
-        section = (
+        first_section = (
             context.da
             if context.time_dim is None
-            else context.da.isel({context.time_dim: -1})
+            else context.da.isel({context.time_dim: 0})
         )
-        if np.issubdtype(section.dtype, np.bool_):
+        if np.issubdtype(first_section.dtype, np.bool_):
             return {
                 "enabled": True,
                 "status": "skipped_bool_dtype",
@@ -421,7 +421,15 @@ class LandOceanOffsetCheck(Check):
                 "note": "Skipped land/ocean sanity check for boolean data.",
             }
 
+        # Determine time indices to sample: [0, halfway, end], deduplicated
+        if context.time_dim is None:
+            time_indices: list[int | None] = [None]
+        else:
+            time_size = int(context.da.sizes[context.time_dim])
+            time_indices = list(dict.fromkeys([0, time_size // 2, time_size - 1]))
+
         def check_points(
+            section: xr.DataArray,
             points: tuple[tuple[str, float, float], ...],
             *,
             expected_missing: bool,
@@ -458,33 +466,73 @@ class LandOceanOffsetCheck(Check):
                 )
             return mismatches
 
-        land_mismatches = check_points(_LAND_REFERENCE_POINTS, expected_missing=True)
-        ocean_mismatches = check_points(_OCEAN_REFERENCE_POINTS, expected_missing=False)
-        mismatch_count = len(land_mismatches) + len(ocean_mismatches)
-        return {
+        time_results: list[dict[str, Any]] = []
+        for ti in time_indices:
+            section = (
+                context.da if ti is None else context.da.isel({context.time_dim: ti})
+            )
+            land_mm = check_points(section, _LAND_REFERENCE_POINTS, expected_missing=True)
+            ocean_mm = check_points(section, _OCEAN_REFERENCE_POINTS, expected_missing=False)
+            entry: dict[str, Any] = {
+                "mismatch_count": len(land_mm) + len(ocean_mm),
+                "land_mismatches": land_mm,
+                "ocean_mismatches": ocean_mm,
+            }
+            if ti is not None:
+                entry["time_index"] = ti
+            time_results.append(entry)
+
+        failed = sum(1 for r in time_results if r["mismatch_count"] > 0)
+        total = len(time_results)
+        if failed == total:
+            status = "fail"
+        elif failed > 0:
+            status = "warn"
+        else:
+            status = "pass"
+
+        report: dict[str, Any] = {
             "enabled": True,
-            "status": "fail" if mismatch_count else "pass",
-            "mismatch_count": mismatch_count,
+            "status": status,
+            "mismatch_count": sum(r["mismatch_count"] for r in time_results),
             "land_points_checked": len(_LAND_REFERENCE_POINTS),
             "ocean_points_checked": len(_OCEAN_REFERENCE_POINTS),
-            "land_mismatches": land_mismatches,
-            "ocean_mismatches": ocean_mismatches,
+            "land_mismatches": [m for r in time_results for m in r["land_mismatches"]],
+            "ocean_mismatches": [m for r in time_results for m in r["ocean_mismatches"]],
         }
+        if context.time_dim is not None:
+            report["sampled_time_indices"] = list(time_indices)
+            report["time_results"] = time_results
+        return report
 
     def check(self, ds: xr.Dataset) -> CheckResult:
         report = self.run_report(ds)
-        status = status_from_leaf_statuses([str(report.get("status", ""))])
+        raw_status = str(report.get("status", ""))
+        status = status_from_leaf_statuses([raw_status])
         mismatch_count = int(report.get("mismatch_count", 0))
-        if str(report.get("status", "")).startswith("skip"):
+        if raw_status.startswith("skip"):
             message = "Land/ocean offset check skipped."
+            suggested_fix = None
+        elif status == CheckStatus.warn:
+            time_results = report.get("time_results", [])
+            failed = sum(1 for r in time_results if r["mismatch_count"] > 0)
+            total = len(time_results)
+            message = f"Land/ocean mismatches at {failed}/{total} sampled time steps."
+            suggested_fix = "Run the time_cover check to investigate temporal data coverage."
         elif mismatch_count > 0:
             message = f"Detected {mismatch_count} land/ocean mismatches."
+            suggested_fix = None
         else:
             message = "No land/ocean offset mismatches detected."
+            suggested_fix = None
         return CheckResult(
             check_id=self.id,
             status=status,
-            info=CheckInfo(message=message, details={"report": report}),
+            info=CheckInfo(
+                message=message,
+                details={"report": report},
+                suggested_fix=suggested_fix,
+            ),
             fixable=False,
             tags=list(self.tags),
         )
