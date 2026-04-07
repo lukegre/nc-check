@@ -35,7 +35,7 @@ $body_html
 
 _REPORT_STYLES = """
 :root{
-  --bg-top:#f4f8f6;
+  --bg-top:#ffffff;
   --bg-mid:#ecf5f4;
   --bg-bottom:#f8fbfa;
   --panel-bg:#ffffff;
@@ -46,8 +46,8 @@ _REPORT_STYLES = """
   --heading:#14252d;
   --hero-accent-a:#0d9488;
   --hero-accent-b:#f59e0b;
-  --header-bg:#eef4f2;
-  --header-bg-strong:#e2eeeb;
+  --header-bg:#f7f7f7;
+  --header-bg-strong:#f7f7f7;
   --radius-md:10px;
   --radius-lg:12px;
   --space-block:.78rem;

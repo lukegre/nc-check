@@ -42,7 +42,7 @@ def choose_time_vars(
 
 
 def missing_mask(da: xr.DataArray) -> xr.DataArray:
-    mask = da.isnull()
+    mask = da.isnull() | (da == 0)
     for source in (da.attrs, da.encoding):
         fill_value = source.get("_FillValue")
         if fill_value is None:
