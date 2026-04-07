@@ -473,6 +473,17 @@ class LandOceanOffsetCheck(Check):
             )
             land_mm = check_points(section, _LAND_REFERENCE_POINTS, expected_missing=True)
             ocean_mm = check_points(section, _OCEAN_REFERENCE_POINTS, expected_missing=False)
+
+            if ti is not None:
+                time_coord = context.da.coords.get(context.time_dim)
+                time_val_str: str | None = None
+                if time_coord is not None:
+                    time_val_str = value_label(np.asarray(time_coord.values)[ti])
+                for m in land_mm + ocean_mm:
+                    m["time_index"] = ti
+                    if time_val_str is not None:
+                        m["time_value"] = time_val_str
+
             entry: dict[str, Any] = {
                 "mismatch_count": len(land_mm) + len(ocean_mm),
                 "land_mismatches": land_mm,

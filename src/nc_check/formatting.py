@@ -512,11 +512,16 @@ def _render_ocean_report_with_rich(console: Any, report: dict[str, Any]) -> None
     def _print_mismatch_table(title_text: str, mismatches: Any) -> None:
         if not isinstance(mismatches, list) or not mismatches:
             return
+        has_time = any(
+            isinstance(e, dict) and "time_value" in e for e in mismatches
+        )
         table = Table(
             title=title_text,
             title_style=_RICH_TITLE_STYLE,
             header_style=_RICH_HEADER_STYLE,
         )
+        if has_time:
+            table.add_column("Time", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Point", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Requested", style=_RICH_TEXT_STYLE, justify="left")
         table.add_column("Actual", style=_RICH_TEXT_STYLE, justify="left")
@@ -531,13 +536,19 @@ def _render_ocean_report_with_rich(console: Any, report: dict[str, Any]) -> None
             expected_value = entry.get("expected_value")
             if expected_value is None:
                 expected_value = entry.get("expected_missing")
-            table.add_row(
+            row = (
+                [_stringify(entry.get("time_value", entry.get("time_index")))]
+                if has_time
+                else []
+            )
+            row += [
                 _stringify(entry.get("point")),
                 f"({_stringify(entry.get('requested_lat'))}, {_stringify(entry.get('requested_lon'))})",
                 f"({_stringify(entry.get('actual_lat'))}, {_stringify(entry.get('actual_lon'))})",
                 _stringify(observed_value),
                 _stringify(expected_value),
-            )
+            ]
+            table.add_row(*row)
         console.print(table)
 
     _offset_time_indices = offset.get("sampled_time_indices")
@@ -1669,8 +1680,16 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
         mismatches = offset.get(key)
         if not isinstance(mismatches, list) or not mismatches:
             continue
+        has_time_col = any(
+            isinstance(e, dict) and "time_value" in e for e in mismatches
+        )
         rows = [
-            [
+            (
+                [escape(_stringify(entry.get("time_value", entry.get("time_index"))))]
+                if has_time_col
+                else []
+            )
+            + [
                 escape(_stringify(entry.get("point"))),
                 escape(
                     f"({_stringify(entry.get('requested_lat'))}, {_stringify(entry.get('requested_lon'))})"
@@ -1692,17 +1711,18 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
             for entry in mismatches
             if isinstance(entry, dict)
         ]
+        headers = (["Time"] if has_time_col else []) + [
+            "Point",
+            "Requested",
+            "Actual",
+            "Observed value",
+            "Expected value",
+        ]
         sections.append(
             _html_static_section(
                 title,
                 _html_table(
-                    [
-                        "Point",
-                        "Requested",
-                        "Actual",
-                        "Observed value",
-                        "Expected value",
-                    ],
+                    headers,
                     rows,
                 ),
             )
