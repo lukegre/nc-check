@@ -53,6 +53,8 @@ nc-check time-cover input.nc --save-report
 nc-check all input.nc --save-report
 ```
 
+Reports are written to the current working directory.
+
 Output file naming:
 
 - compliance: `<input>_report.html`

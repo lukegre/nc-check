@@ -232,6 +232,88 @@ def test_print_pretty_ocean_reports_prints_banner_once(capsys) -> None:
     assert "sss" in out
 
 
+def test_print_pretty_ocean_reports_multi_variable_matches_html_top_summary(
+    capsys,
+) -> None:
+    reports = [
+        {
+            "variable": "sst",
+            "ok": True,
+            "grid": {},
+            "edge_of_map": {"status": "pass", "missing_longitude_count": 0},
+            "land_ocean_offset": {"status": "pass", "mismatch_count": 0},
+            "time_missing": {"status": "pass", "missing_slice_count": 0},
+        },
+        {
+            "variable": "ice",
+            "ok": False,
+            "grid": {},
+            "edge_of_map": {"status": "fail", "missing_longitude_count": 2},
+            "land_ocean_offset": {"status": "fail", "mismatch_count": 1},
+            "time_missing": {"status": "fail", "missing_slice_count": 3},
+        },
+    ]
+
+    html = formatting.render_pretty_ocean_reports_html(reports)
+    formatting.print_pretty_ocean_reports(reports)
+    out = capsys.readouterr().out
+
+    assert "Top Summary" in html
+    assert "Top Summary" in out
+    assert "Variables checked" in html
+    assert "Variables checked" in out
+    assert "Failing variables" in html
+    assert "Failing variables" in out
+    assert "missing_longitudes=0" in html
+    assert "missing_longitudes=0" in out
+    assert "mismatches=1" in html
+    assert "mismatches=1" in out
+    assert "missing_slices=3" in html
+    assert "missing_slices=3" in out
+    assert "FAILED" in html
+    assert "FAILED" in out
+
+
+def test_print_pretty_time_cover_reports_multi_variable_matches_html_top_summary(
+    capsys,
+) -> None:
+    reports = [
+        {
+            "variable": "sst",
+            "ok": True,
+            "time_dim": "time",
+            "time_missing": {"status": "pass", "missing_slice_count": 0},
+            "time_format": {"status": "pass"},
+        },
+        {
+            "variable": "mask",
+            "ok": False,
+            "time_dim": "time",
+            "time_missing": {"status": "fail", "missing_slice_count": 2},
+            "time_format": {"status": "skipped_no_time"},
+        },
+    ]
+
+    html = formatting.render_pretty_time_cover_reports_html(reports)
+    formatting.print_pretty_time_cover_reports(reports)
+    out = capsys.readouterr().out
+
+    assert "Top Summary" in html
+    assert "Top Summary" in out
+    assert "Variables checked" in html
+    assert "Variables checked" in out
+    assert "Failing variables" in html
+    assert "Failing variables" in out
+    assert "missing_slices=0" in html
+    assert "missing_slices=0" in out
+    assert "missing_slices=2" in html
+    assert "missing_slices=2" in out
+    assert "time_format=skipped_no_time" in html
+    assert "time_format=skipped_no_time" in out
+    assert "FAILED" in html
+    assert "FAILED" in out
+
+
 def test_print_pretty_report_summary_and_severity_priority(capsys) -> None:
     formatting.print_pretty_report(
         {

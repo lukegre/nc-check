@@ -8,6 +8,7 @@
 - [CLI Guide](cli.md)
 - [Python API Guide](python-api.md)
 - [Checks and Reports](checks-and-reports.md)
+- [Add a Check Suite](add-check-suite.md)
 - [Troubleshooting](troubleshooting.md)
 - [Development](development.md)
 

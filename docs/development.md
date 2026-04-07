@@ -59,6 +59,10 @@ mkdocs serve
 - `src/nc_check/formatting.py`: table/html/python report formatting
 - `tests/`: test suite
 
+## Contributor Guides
+
+- [Add a check suite and report](add-check-suite.md)
+
 ## Local Smoke Check
 
 ```bash
