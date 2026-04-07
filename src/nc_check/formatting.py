@@ -1383,7 +1383,6 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
     meta_rows: list[tuple[str, Any]] = [
         ("CF version", report.get("cf_version")),
         ("Engine", report.get("engine")),
-        ("Engine status", report.get("engine_status")),
         ("Check method", report.get("check_method")),
     ]
     source_file = report.get("source_file")
@@ -1392,21 +1391,7 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
     generated_on = report.get("generated_on")
     if generated_on:
         meta_rows.append(("Generated", generated_on))
-    meta_rows.extend(
-        [
-            ("Conventions", conventions_text),
-            (
-                "Counts",
-                " ".join(
-                    [
-                        f"fatal={_stringify(counts.get('fatal', 0))}",
-                        f"error={_stringify(counts.get('error', 0))}",
-                        f"warn={_stringify(counts.get('warn', 0))}",
-                    ]
-                ),
-            ),
-        ]
-    )
+    meta_rows.append(("Conventions", conventions_text))
     meta = _html_summary_table(meta_rows)
 
     stats = _html_stat_strip(
@@ -1417,7 +1402,12 @@ def _cf_report_sections(report: dict[str, Any]) -> str:
             ("Warnings", warn_count, "warn" if warn_count > 0 else None),
             (
                 "Engine status",
-                _stringify(report.get("engine_status")).upper(),
+                {
+                    "pass": "PASSED",
+                    "fail": "FAILED",
+                    "skip": "SKIPPED",
+                    "warn": "WARNING",
+                }.get(_status_kind(report.get("engine_status")), "FAILED"),
                 _status_kind(report.get("engine_status")),
             ),
         ]
@@ -1524,7 +1514,6 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
     meta = _html_summary_table(
         [
             ("Variable", report.get("variable")),
-            ("Overall OK", report.get("ok")),
             (
                 "Longitude",
                 f"{_stringify(grid.get('lon_name'))} ({_stringify(grid.get('lon_dim'))})",
@@ -1705,7 +1694,6 @@ def _time_cover_report_sections(report: dict[str, Any]) -> str:
     meta_rows: list[tuple[str, Any]] = [
         ("Variable", report.get("variable")),
         ("Time dim", report.get("time_dim")),
-        ("Overall OK", report.get("ok")),
     ]
     if time_format:
         meta_rows.extend(
@@ -1898,17 +1886,11 @@ def _ocean_reports_summary_sections(reports: list[dict[str, Any]]) -> str:
             ),
         ]
     )
-    meta = _html_summary_table(
-        [
-            ("Variables checked", len(reports)),
-            ("Overall OK", overall_ok),
-        ]
-    )
     summary = _html_static_section(
         "Top Summary",
         _html_check_summary_table(summary_rows),
     )
-    return stats + meta + summary
+    return stats + summary
 
 
 def render_pretty_time_cover_report_html(report: Any) -> str:
@@ -1970,17 +1952,11 @@ def _time_cover_reports_summary_sections(reports: list[dict[str, Any]]) -> str:
             ),
         ]
     )
-    meta = _html_summary_table(
-        [
-            ("Variables checked", len(reports)),
-            ("Overall OK", overall_ok),
-        ]
-    )
     summary = _html_static_section(
         "Top Summary",
         _html_check_summary_table(summary_rows),
     )
-    return stats + meta + summary
+    return stats + summary
 
 
 def render_pretty_time_cover_reports_html(reports: list[dict[str, Any]]) -> str:
