@@ -563,8 +563,14 @@ def _render_ocean_report_with_rich(console: Any, report: dict[str, Any]) -> None
                 "Time indices checked",
                 ", ".join(str(i) for i in _offset_time_indices),
             )
-        mm_info.add_row("Land missing points", str(_land_mm_count))
-        mm_info.add_row("Ocean missing points", str(_ocean_mm_count))
+        mm_info.add_row(
+            "Land missing points",
+            f"{_land_mm_count} / {_stringify(offset.get('land_points_checked', '?'))}",
+        )
+        mm_info.add_row(
+            "Ocean missing points",
+            f"{_ocean_mm_count} / {_stringify(offset.get('ocean_points_checked', '?'))}",
+        )
         console.print(mm_info)
 
     _print_mismatch_table("Land Mismatches", offset.get("land_mismatches"))
@@ -1665,8 +1671,18 @@ def _ocean_report_sections(report: dict[str, Any]) -> str:
                     ", ".join(str(i) for i in _offset_time_indices_html),
                 )
             )
-        mm_meta_rows.append(("Land missing points", len(_land_mm_list)))
-        mm_meta_rows.append(("Ocean missing points", len(_ocean_mm_list)))
+        mm_meta_rows.append(
+            (
+                "Land missing points",
+                f"{len(_land_mm_list)} / {_stringify(offset.get('land_points_checked', '?'))}",
+            )
+        )
+        mm_meta_rows.append(
+            (
+                "Ocean missing points",
+                f"{len(_ocean_mm_list)} / {_stringify(offset.get('ocean_points_checked', '?'))}",
+            )
+        )
         sections.append(
             _html_static_section(
                 "Land/Ocean Offset Details", _html_summary_table(mm_meta_rows)
