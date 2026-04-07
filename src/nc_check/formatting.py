@@ -782,7 +782,7 @@ def _render_ocean_reports_top_summary_with_rich(
         summary_rows.append(
             (
                 _stringify(report.get("variable")),
-                report.get("ok"),
+                _ocean_variable_status(report),
                 " ".join(detail_parts),
             )
         )
@@ -895,7 +895,7 @@ def _render_time_cover_reports_top_summary_with_rich(
         summary_rows.append(
             (
                 _stringify(report.get("variable")),
-                report.get("ok"),
+                _time_cover_variable_status(report),
                 " ".join(detail_parts),
             )
         )

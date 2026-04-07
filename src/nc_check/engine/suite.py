@@ -24,10 +24,13 @@ def _summary_from_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
     failing_checks = sum(1 for kind in kinds if kind == "fail")
     warning_checks = sum(1 for kind in kinds if kind == "warn")
     warnings_or_skips = sum(1 for kind in kinds if kind in {"warn", "skip"})
+    skip_checks = sum(1 for kind in kinds if kind == "skip")
     if failing_checks > 0:
         overall_status = "fail"
     elif warning_checks > 0:
         overall_status = "warn"
+    elif len(checks) > 0 and skip_checks == len(checks):
+        overall_status = "skip"
     else:
         overall_status = "pass"
     return {
@@ -35,7 +38,7 @@ def _summary_from_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
         "failing_checks": failing_checks,
         "warnings_or_skips": warnings_or_skips,
         "overall_status": overall_status,
-        "overall_ok": overall_status == "pass",
+        "overall_ok": overall_status in {"pass", "skip"},
     }
 
 
