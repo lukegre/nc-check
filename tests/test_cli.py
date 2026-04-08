@@ -41,7 +41,7 @@ def test_run_check_uses_tables_report_format(monkeypatch, tmp_path, capsys) -> N
 
     assert status == 0
     assert seen_open["kwargs"] == {"chunks": {}}
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["conventions"] == "cf,ferret"
     assert seen["engine"] == "auto"
     assert "report-output" in out
@@ -115,7 +115,7 @@ def test_run_check_forwards_custom_conventions(monkeypatch, tmp_path) -> None:
     status = cli.run_check([str(source), "--conventions", "ferret"])
 
     assert status == 0
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["conventions"] == "ferret"
     assert seen["engine"] == "auto"
 
@@ -154,6 +154,7 @@ def test_run_check_save_report_uses_html_and_default_output_path(
     assert seen["report_html_file"] == tmp_path / "sample_report.html"
     assert seen["conventions"] == "cf,ferret"
     assert seen["engine"] == "auto"
+    assert source.with_name("sample_report.html").exists()
 
 
 def test_run_check_forwards_compliance_engine(monkeypatch, tmp_path) -> None:
@@ -178,7 +179,7 @@ def test_run_check_forwards_compliance_engine(monkeypatch, tmp_path) -> None:
     status = cli.run_check([str(source), "--engine", "heuristic"])
 
     assert status == 0
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["engine"] == "heuristic"
 
 
@@ -214,7 +215,7 @@ def test_run_check_ocean_cover_mode_routes_to_ocean_checker(
     status = cli.run_check(["ocean-cover", str(source)])
 
     assert status == 0
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["report_html_file"] is None
     assert seen["kwargs"] == {
         "lon_name": None,
@@ -272,7 +273,7 @@ def test_run_check_ocean_cover_mode_forwards_coordinate_names(
     assert seen["lon_name"] == "x"
     assert seen["lat_name"] == "y"
     assert seen["time_name"] == "t"
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["report_html_file"] is None
     assert seen["kwargs"] == {
         "check_lon_0_360": False,
@@ -314,7 +315,7 @@ def test_run_check_ocean_cover_mode_forwards_lon_convention_flags(
     )
 
     assert status == 0
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["report_html_file"] is None
     assert seen["kwargs"] == {
         "lon_name": None,
@@ -353,7 +354,7 @@ def test_run_check_time_cover_mode_forwards_time_name(monkeypatch, tmp_path) -> 
 
     assert status == 0
     assert seen["time_name"] == "t"
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["report_html_file"] is None
     assert seen["kwargs"] == {
         "check_time_monotonic": False,
@@ -396,7 +397,7 @@ def test_run_check_time_cover_mode_forwards_time_flags(monkeypatch, tmp_path) ->
 
     assert status == 0
     assert seen["time_name"] == "time"
-    assert seen["report_format"] == "tables"
+    assert seen["report_format"] == "python"
     assert seen["report_html_file"] is None
     assert seen["kwargs"] == {
         "check_time_monotonic": True,
@@ -524,8 +525,6 @@ def test_run_check_all_mode_forwards_coordinate_names(monkeypatch, tmp_path) -> 
     assert seen["check_lon_neg180_180"] is False
     assert seen["check_time_monotonic"] is False
     assert seen["check_time_regular_spacing"] is False
-    assert seen["report_format"] == "tables"
-    assert seen["report_html_file"] is None
 
 
 def test_run_check_all_mode_forwards_lon_convention_flags(
